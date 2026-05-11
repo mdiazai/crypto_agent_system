@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="es" x-data="perf()" x-init="init()">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Performance — Crypto Agent System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dark: { 900:'#0a0f1e', 800:'#0f172a', 700:'#1e293b', 600:'#334155' },
+            brand: { DEFAULT:'#6366f1', light:'#818cf8', dark:'#4f46e5' }
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js" defer></script>
+  <style>
+    [x-cloak]   { display: none !important; }
+    body        { background-color: #0a0f1e; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+    .card       { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; }
+    .bar-track  { background: #1e293b; border-radius: 9999px; height: 6px; }
+    .bar-fill   { border-radius: 9999px; height: 6px; transition: width 0.7s ease; }
+    .fade-in    { animation: fadeIn 0.35s ease; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+    .spin       { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    ::-webkit-scrollbar { width:6px; height:6px; }
+    ::-webkit-scrollbar-track { background:#1e293b; }
+    ::-webkit-scrollbar-thumb { background:#475569; border-radius:3px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════ NAV ═══════ -->
+<nav class="bg-dark-800 border-b border-dark-700 px-6 py-3 flex items-center justify-between sticky top-0 z-50">
+  <div class="flex items-center gap-3">
+    <a href="/" class="text-slate-400 hover:text-white text-xs transition-colors">← Dashboard</a>
+    <span class="text-dark-600">|</span>
+    <span class="text-xl">📈</span>
+    <span class="font-bold text-white">Performance</span>
+    <span class="text-xs px-2 py-0.5 rounded-full font-mono font-semibold"
+      :class="data?.paper_trading ? 'bg-amber-900/30 text-amber-400 border border-amber-800/50' : 'bg-emerald-900/30 text-emerald-400 border border-emerald-800/50'">
+      <span x-show="data?.paper_trading">● PAPER</span>
+      <span x-show="data && !data.paper_trading">● LIVE</span>
+    </span>
+  </div>
+  <div class="flex items-center gap-3 text-xs text-slate-500">
+    <span x-show="refreshing" class="text-brand-light flex items-center gap-1">
+      <svg class="spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+      Actualizando…
+    </span>
+    <span x-show="!refreshing && lastUpdate">Actualizado: <span class="text-slate-400" x-text="lastUpdate"></span></span>
+    <button @click="load()" :disabled="refreshing"
+      class="border border-dark-600 px-3 py-1 rounded-lg hover:text-white transition-colors disabled:opacity-40">
+      ↻ Refrescar
+    </button>
+    <button @click="goHome()" class="hover:text-red-400 transition-colors">Salir ↩</button>
+  </div>
+</nav>
+
+<!-- ═══════ MAIN ═══════ -->
+<div class="max-w-5xl mx-auto px-6 py-8 fade-in">
+
+  <!-- Error / not logged in -->
+  <div x-show="error" x-cloak class="card p-8 text-center text-red-400 mb-6">
+    <p class="text-2xl mb-2">⚠️</p>
+    <p x-text="error"></p>
+    <a href="/" class="mt-4 inline-block text-brand-light text-sm hover:underline">Volver al login</a>
+  </div>
+
+  <!-- Skeleton while loading first time -->
+  <div x-show="!data && !error" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <template x-for="i in 6" :key="i">
+      <div class="card p-5 animate-pulse">
+        <div class="h-3 bg-dark-700 rounded w-1/2 mb-3"></div>
+        <div class="h-8 bg-dark-700 rounded w-1/3 mb-3"></div>
+        <div class="bar-track"><div class="bar-fill bg-dark-700 w-1/2"></div></div>
+      </div>
+    </template>
+  </div>
+
+  <!-- Metrics grid -->
+  <div x-show="data" x-cloak class="space-y-6">
+
+    <!-- Capital header -->
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-bold text-white">Estado del Sistema</h1>
+        <p class="text-slate-500 text-sm">Capital: <span class="text-white font-mono" x-text="'$' + (data?.capital_usd ?? 0).toLocaleString('en', {minimumFractionDigits:0})"></span>
+          &nbsp;·&nbsp; Glassnode ($99/mes): <span class="font-mono" :class="costColor(data?.glassnode_cost_pct)" x-text="(data?.glassnode_cost_pct ?? 0).toFixed(1) + '% del capital'"></span>
+        </p>
+      </div>
+      <div class="text-right">
+        <p class="text-xs text-slate-500 uppercase tracking-wider">Próximo refresh en</p>
+        <p class="text-2xl font-bold font-mono text-white" x-text="countdown + 's'"></p>
+      </div>
+    </div>
+
+    <!-- 6 metric cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+      <!-- Win Rate -->
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-xs text-slate-500 uppercase tracking-wider">Win Rate</p>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full"
+            :class="trafficLight(data?.win_rate * 100, 60, 45, false).badge"
+            x-text="trafficLight(data?.win_rate * 100, 60, 45, false).label"></span>
+        </div>
+        <p class="text-3xl font-bold mt-1" :class="trafficLight(data?.win_rate * 100, 60, 45, false).text"
+          x-text="((data?.win_rate ?? 0) * 100).toFixed(1) + '%'"></p>
+        <p class="text-xs text-slate-600 mb-3">de trades cerrados con ganancias</p>
+        <div class="bar-track">
+          <div class="bar-fill" :class="trafficLight(data?.win_rate * 100, 60, 45, false).bar"
+            :style="'width:' + Math.min((data?.win_rate ?? 0) * 100 / 60 * 100, 100) + '%'"></div>
+        </div>
+        <p class="text-right text-xs text-slate-600 mt-1">objetivo: 60%</p>
+      </div>
+
+      <!-- Total Trades -->
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-xs text-slate-500 uppercase tracking-wider">Total Trades</p>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full"
+            :class="trafficLight(data?.total_trades, 30, 15, false).badge"
+            x-text="trafficLight(data?.total_trades, 30, 15, false).label"></span>
+        </div>
+        <p class="text-3xl font-bold mt-1" :class="trafficLight(data?.total_trades, 30, 15, false).text"
+          x-text="data?.total_trades ?? 0"></p>
+        <p class="text-xs text-slate-600 mb-3">operaciones registradas en DB</p>
+        <div class="bar-track">
+          <div class="bar-fill" :class="trafficLight(data?.total_trades, 30, 15, false).bar"
+            :style="'width:' + Math.min((data?.total_trades ?? 0) / 30 * 100, 100) + '%'"></div>
+        </div>
+        <p class="text-right text-xs text-slate-600 mt-1">objetivo: 30</p>
+      </div>
+
+      <!-- Days Operating -->
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-xs text-slate-500 uppercase tracking-wider">Días Operando</p>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full"
+            :class="trafficLight(data?.days_operating, 30, 15, false).badge"
+            x-text="trafficLight(data?.days_operating, 30, 15, false).label"></span>
+        </div>
+        <p class="text-3xl font-bold mt-1" :class="trafficLight(data?.days_operating, 30, 15, false).text"
+          x-text="data?.days_operating ?? 0"></p>
+        <p class="text-xs text-slate-600 mb-3">desde el primer trade registrado</p>
+        <div class="bar-track">
+          <div class="bar-fill" :class="trafficLight(data?.days_operating, 30, 15, false).bar"
+            :style="'width:' + Math.min((data?.days_operating ?? 0) / 30 * 100, 100) + '%'"></div>
+        </div>
+        <p class="text-right text-xs text-slate-600 mt-1">objetivo: 30 días</p>
+      </div>
+
+      <!-- Avg Anticipation -->
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-xs text-slate-500 uppercase tracking-wider">Anticipación Promedio</p>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full"
+            :class="trafficLight(data?.avg_anticipation_hours, 3, 1.5, false).badge"
+            x-text="trafficLight(data?.avg_anticipation_hours, 3, 1.5, false).label"></span>
+        </div>
+        <p class="text-3xl font-bold mt-1" :class="trafficLight(data?.avg_anticipation_hours, 3, 1.5, false).text"
+          x-text="(data?.avg_anticipation_hours ?? 0).toFixed(1) + 'h'"></p>
+        <p class="text-xs text-slate-600 mb-3">entre alerta Telegram y entrada al trade</p>
+        <div class="bar-track">
+          <div class="bar-fill" :class="trafficLight(data?.avg_anticipation_hours, 3, 1.5, false).bar"
+            :style="'width:' + Math.min((data?.avg_anticipation_hours ?? 0) / 3 * 100, 100) + '%'"></div>
+        </div>
+        <p class="text-right text-xs text-slate-600 mt-1">objetivo: ≥ 3h</p>
+      </div>
+
+      <!-- Classic Fail Rate (inverted) -->
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-xs text-slate-500 uppercase tracking-wider">Classic Fail Rate</p>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full"
+            :class="trafficLight(data?.classic_fail_rate * 100, 20, 40, true).badge"
+            x-text="trafficLight(data?.classic_fail_rate * 100, 20, 40, true).label"></span>
+        </div>
+        <p class="text-3xl font-bold mt-1" :class="trafficLight(data?.classic_fail_rate * 100, 20, 40, true).text"
+          x-text="((data?.classic_fail_rate ?? 0) * 100).toFixed(1) + '%'"></p>
+        <p class="text-xs text-slate-600 mb-3">trades Classic Squeeze con entrada mala o tardía</p>
+        <div class="bar-track">
+          <div class="bar-fill" :class="trafficLight(data?.classic_fail_rate * 100, 20, 40, true).bar"
+            :style="'width:' + Math.min((data?.classic_fail_rate ?? 0) * 100 / 40 * 100, 100) + '%'"></div>
+        </div>
+        <p class="text-right text-xs text-slate-600 mt-1">objetivo: ≤ 20%</p>
+      </div>
+
+      <!-- Glassnode Cost % (inverted) -->
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-xs text-slate-500 uppercase tracking-wider">Costo Glassnode</p>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full"
+            :class="trafficLight(data?.glassnode_cost_pct, 3.3, 10, true).badge"
+            x-text="trafficLight(data?.glassnode_cost_pct, 3.3, 10, true).label"></span>
+        </div>
+        <p class="text-3xl font-bold mt-1" :class="trafficLight(data?.glassnode_cost_pct, 3.3, 10, true).text"
+          x-text="(data?.glassnode_cost_pct ?? 0).toFixed(1) + '%'"></p>
+        <p class="text-xs text-slate-600 mb-3">$99/mes como % del capital total</p>
+        <div class="bar-track">
+          <div class="bar-fill" :class="trafficLight(data?.glassnode_cost_pct, 3.3, 10, true).bar"
+            :style="'width:' + Math.min((data?.glassnode_cost_pct ?? 0) / 10 * 100, 100) + '%'"></div>
+        </div>
+        <p class="text-right text-xs text-slate-600 mt-1">objetivo: ≤ 3.3%</p>
+      </div>
+
+    </div>
+
+    <!-- ═══ VEREDICTO ═══ -->
+    <div class="card p-6" :class="verdict.borderClass">
+      <div class="flex items-start gap-4">
+        <div class="text-4xl mt-0.5" x-text="verdict.icon"></div>
+        <div class="flex-1">
+          <h2 class="text-lg font-bold text-white mb-1" x-text="verdict.title"></h2>
+          <p class="text-slate-400 text-sm mb-4" x-text="verdict.summary"></p>
+
+          <!-- Checklist -->
+          <ul class="space-y-2">
+            <template x-for="item in verdict.checks" :key="item.label">
+              <li class="flex items-center gap-2 text-sm">
+                <span x-text="item.ok ? '✅' : '⬜'"></span>
+                <span :class="item.ok ? 'text-slate-300' : 'text-slate-500'" x-text="item.label"></span>
+                <span x-show="!item.ok && item.need" class="text-xs text-slate-600 ml-1" x-text="'← ' + item.need"></span>
+              </li>
+            </template>
+          </ul>
+
+          <!-- Acción recomendada -->
+          <div x-show="verdict.action" class="mt-4 text-xs border-l-2 pl-3 py-1"
+            :class="verdict.actionClass" x-text="verdict.action"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Note on Classic pattern -->
+    <div class="card p-4 flex items-start gap-3">
+      <span class="text-lg">ℹ️</span>
+      <div class="text-xs text-slate-500 leading-relaxed">
+        <strong class="text-slate-400">Classic Squeeze</strong> requiere datos on-chain de Glassnode
+        (<code class="text-slate-400">short_interest_pct</code>). Sin API key, ese patrón nunca se activa
+        y sus métricas siempre muestran 0 — es el comportamiento esperado en modo sin Glassnode.
+        <strong class="text-slate-400">Long Pump</strong> funciona completamente con datos de CCXT/CoinGecko.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function perf() {
+  return {
+    data: null,
+    error: '',
+    refreshing: false,
+    lastUpdate: '',
+    countdown: 60,
+    _timer: null,
+    _interval: null,
+
+    get token() { return localStorage.getItem('cas_token') || ''; },
+
+    async init() {
+      if (!this.token) {
+        window.location.href = '/';
+        return;
+      }
+      await this.load();
+      this._interval = setInterval(() => this.tick(), 1000);
+    },
+
+    tick() {
+      this.countdown--;
+      if (this.countdown <= 0) {
+        this.countdown = 60;
+        this.load();
+      }
+    },
+
+    async load() {
+      if (this.refreshing) return;
+      this.refreshing = true;
+      try {
+        const res = await fetch('/performance/metrics', {
+          headers: { 'Authorization': 'Bearer ' + this.token }
+        });
+        if (res.status === 401) { window.location.href = '/'; return; }
+        if (!res.ok) { this.error = 'Error ' + res.status + ' al cargar métricas'; return; }
+        this.data = await res.json();
+        this.error = '';
+        this.countdown = 60;
+        this.lastUpdate = new Date().toLocaleTimeString('es', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+      } catch (e) {
+        this.error = 'No se pudo conectar con el servidor: ' + e.message;
+      } finally {
+        this.refreshing = false;
+      }
+    },
+
+    goHome() {
+      localStorage.removeItem('cas_token');
+      window.location.href = '/';
+    },
+
+    // ── Traffic light helper ──────────────────────────────────────────────
+    // inverted=true means lower is better (fail rates, costs)
+    trafficLight(val, greenThreshold, yellowThreshold, inverted) {
+      val = val ?? 0;
+      let level; // 'green' | 'yellow' | 'red'
+      if (!inverted) {
+        if (val >= greenThreshold)  level = 'green';
+        else if (val >= yellowThreshold) level = 'yellow';
+        else level = 'red';
+      } else {
+        if (val <= greenThreshold)  level = 'green';
+        else if (val <= yellowThreshold) level = 'yellow';
+        else level = 'red';
+      }
+      return {
+        green:  { text:'text-emerald-400', bar:'bg-emerald-500', badge:'bg-emerald-900/30 text-emerald-400 border border-emerald-800/50', label:'Verde' },
+        yellow: { text:'text-amber-400',   bar:'bg-amber-500',   badge:'bg-amber-900/30 text-amber-400 border border-amber-800/50',     label:'Amarillo' },
+        red:    { text:'text-red-400',      bar:'bg-red-500',     badge:'bg-red-900/30 text-red-400 border border-red-800/50',            label:'Rojo' },
+      }[level];
+    },
+
+    costColor(val) {
+      val = val ?? 0;
+      if (val <= 3.3) return 'text-emerald-400';
+      if (val <= 10)  return 'text-amber-400';
+      return 'text-red-400';
+    },
+
+    // ── Verdict ───────────────────────────────────────────────────────────
+    get verdict() {
+      if (!this.data) return { icon:'⏳', title:'Cargando...', summary:'', checks:[], action:'', borderClass:'', actionClass:'' };
+
+      const d = this.data;
+      const checks = [
+        {
+          label: 'Win rate ≥ 60%',
+          ok: (d.win_rate * 100) >= 60,
+          need: `actual: ${(d.win_rate * 100).toFixed(1)}%`,
+        },
+        {
+          label: 'Al menos 30 trades cerrados',
+          ok: d.total_trades >= 30,
+          need: `actual: ${d.total_trades} trades`,
+        },
+        {
+          label: '30+ días operando',
+          ok: d.days_operating >= 30,
+          need: `actual: ${d.days_operating} días`,
+        },
+        {
+          label: 'Anticipación promedio ≥ 3h',
+          ok: d.avg_anticipation_hours >= 3,
+          need: `actual: ${d.avg_anticipation_hours.toFixed(1)}h`,
+        },
+        {
+          label: 'Classic Fail Rate ≤ 20%',
+          ok: (d.classic_fail_rate * 100) <= 20,
+          need: `actual: ${(d.classic_fail_rate * 100).toFixed(1)}%`,
+        },
+        {
+          label: 'Costo Glassnode ≤ 3.3% del capital',
+          ok: d.glassnode_cost_pct <= 3.3,
+          need: `actual: ${d.glassnode_cost_pct.toFixed(1)}% ($99 / $${d.capital_usd.toLocaleString('en')})`,
+        },
+      ];
+
+      const okCount = checks.filter(c => c.ok).length;
+
+      if (okCount === 6) {
+        return {
+          icon: '🚀',
+          title: '¡Listo para upgrade a Glassnode!',
+          summary: 'Todos los indicadores están en verde. El sistema tiene suficiente historial y desempeño para justificar la suscripción de $99/mes.',
+          checks,
+          action: 'Acción recomendada: suscríbete a Glassnode Basic ($99/mes), agrega GLASSNODE_API_KEY al .env y reinicia los contenedores. Esto activará el patrón Classic Squeeze y on-chain data.',
+          borderClass: 'border-emerald-800/50',
+          actionClass: 'border-emerald-600 text-emerald-400',
+        };
+      }
+
+      if (okCount >= 4) {
+        return {
+          icon: '📈',
+          title: 'Casi listo — faltan pocos criterios',
+          summary: `${6 - okCount} indicador${6-okCount > 1 ? 'es' : ''} aún no alcanza el umbral. Continúa operando en paper trading.`,
+          checks,
+          action: 'Sigue acumulando trades y días de operación. Revisa esta pantalla cada semana.',
+          borderClass: 'border-amber-800/50',
+          actionClass: 'border-amber-600 text-amber-400',
+        };
+      }
+
+      // Build a message about the biggest blockers
+      const notOk = checks.filter(c => !c.ok).map(c => c.label.split(' ')[0] + ' ' + (c.need || ''));
+      return {
+        icon: '⏳',
+        title: 'Sistema en rodaje — continúa en Paper Trading',
+        summary: `${okCount}/6 criterios cumplidos. El sistema necesita más historial y trades para validar el modelo antes de invertir en Glassnode.`,
+        checks,
+        action: 'No es el momento para Glassnode. Deja correr el sistema al menos 30 días y espera a tener 30+ trades con datos reales.',
+        borderClass: 'border-slate-700',
+        actionClass: 'border-slate-600 text-slate-400',
+      };
+    },
+  };
+}
+</script>
+</body>
+</html>

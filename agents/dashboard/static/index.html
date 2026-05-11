@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="es" x-data="app()" x-init="init()">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crypto Agent System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dark: { 900:'#0a0f1e', 800:'#0f172a', 700:'#1e293b', 600:'#334155' },
+            brand: { DEFAULT:'#6366f1', light:'#818cf8', dark:'#4f46e5' }
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js" defer></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    body { background-color: #0a0f1e; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    .score-bar { transition: width 0.6s ease; }
+    .fade-in { animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+    .pulse-dot { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    .tab-active { border-bottom: 2px solid #6366f1; color: #818cf8; }
+    .tab-inactive { border-bottom: 2px solid transparent; color: #64748b; }
+    .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; }
+    .badge-pump { background: #7c3aed22; color: #a78bfa; border: 1px solid #7c3aed44; }
+    .badge-classic { background: #0369a122; color: #38bdf8; border: 1px solid #0369a144; }
+    .badge-paper { background: #f59e0b22; color: #fbbf24; border: 1px solid #f59e0b44; }
+    .badge-live { background: #10b98122; color: #34d399; border: 1px solid #10b98144; }
+    .blink { animation: blink 1s step-start infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════ LOGIN ═══════════════════════ -->
+<div x-show="!token" x-cloak class="min-h-screen flex items-center justify-center">
+  <div class="card p-10 w-full max-w-sm fade-in">
+    <div class="text-center mb-8">
+      <div class="text-4xl mb-3">🔍</div>
+      <h1 class="text-2xl font-bold text-white">Crypto Agent System</h1>
+      <p class="text-slate-500 text-sm mt-1">Criminal Pump Detector</p>
+    </div>
+
+    <form @submit.prevent="login()" class="space-y-4">
+      <div>
+        <label class="block text-xs text-slate-400 mb-1 uppercase tracking-wider">Usuario</label>
+        <input x-model="form.username" type="text" placeholder="admin"
+          class="w-full bg-dark-700 border border-dark-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-brand text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs text-slate-400 mb-1 uppercase tracking-wider">Contraseña</label>
+        <input x-model="form.password" type="password" placeholder="••••••••"
+          class="w-full bg-dark-700 border border-dark-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-brand text-sm" />
+      </div>
+      <div x-show="form.error" class="text-red-400 text-xs bg-red-900/20 border border-red-800 rounded px-3 py-2" x-text="form.error"></div>
+      <button type="submit" :disabled="form.loading"
+        class="w-full bg-brand hover:bg-brand-dark text-white font-semibold py-2.5 rounded-lg transition-colors text-sm disabled:opacity-50">
+        <span x-show="!form.loading">Ingresar</span>
+        <span x-show="form.loading">Autenticando…</span>
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════════ DASHBOARD ═══════════════════════ -->
+<div x-show="token" x-cloak class="min-h-screen flex flex-col">
+
+  <!-- NAV -->
+  <nav class="bg-dark-800 border-b border-dark-700 px-6 py-3 flex items-center justify-between sticky top-0 z-50">
+    <div class="flex items-center gap-3">
+      <span class="text-xl">🔍</span>
+      <span class="font-bold text-white text-lg">Crypto Agent</span>
+      <span class="text-xs px-2 py-0.5 rounded-full font-mono font-semibold"
+        :class="paperMode ? 'badge-paper' : 'badge-live'">
+        <span x-show="paperMode">● PAPER</span>
+        <span x-show="!paperMode">● LIVE</span>
+      </span>
+      <span x-show="circuitBreaker" class="text-xs px-2 py-0.5 rounded-full bg-red-900/30 text-red-400 border border-red-800">
+        ⚡ CIRCUIT BREAKER
+      </span>
+    </div>
+    <div class="flex items-center gap-4 text-sm">
+      <span class="text-slate-500 text-xs">
+        <span class="pulse-dot inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1"></span>
+        Actualizado: <span x-text="lastUpdate || '—'"></span>
+      </span>
+      <button @click="refreshAll()" :disabled="loading"
+        class="text-slate-400 hover:text-white transition-colors text-xs border border-dark-600 px-3 py-1 rounded-lg">
+        ↻ Refrescar
+      </button>
+      <a href="/static/performance.html"
+        class="text-slate-400 hover:text-brand-light transition-colors text-xs border border-dark-600 px-3 py-1 rounded-lg">
+        📈 Performance
+      </a>
+      <button @click="logout()" class="text-slate-500 hover:text-red-400 transition-colors text-xs">
+        Salir ↩
+      </button>
+    </div>
+  </nav>
+
+  <!-- KPI ROW -->
+  <div class="px-6 pt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="card p-4">
+      <p class="text-xs text-slate-500 uppercase tracking-wider mb-1">Tokens Activos</p>
+      <p class="text-3xl font-bold text-white" x-text="tokens.length"></p>
+      <p class="text-xs text-slate-600 mt-1">en watchlist</p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs text-slate-500 uppercase tracking-wider mb-1">Alertas Enviadas</p>
+      <p class="text-3xl font-bold text-amber-400" x-text="alertCount"></p>
+      <p class="text-xs text-slate-600 mt-1">con alerta Telegram</p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs text-slate-500 uppercase tracking-wider mb-1">Trades Abiertos</p>
+      <p class="text-3xl font-bold text-sky-400" x-text="summary?.open_trades ?? '—'"></p>
+      <p class="text-xs text-slate-600 mt-1">posiciones activas</p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs text-slate-500 uppercase tracking-wider mb-1">PnL Total</p>
+      <p class="text-3xl font-bold" :class="(summary?.total_pnl_usd ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'"
+        x-text="summary ? '$' + (summary.total_pnl_usd ?? 0).toFixed(2) : '—'"></p>
+      <p class="text-xs text-slate-600 mt-1" x-text="summary ? 'Win rate: ' + ((summary.win_rate ?? 0)*100).toFixed(0) + '%' : ''"></p>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="px-6 pt-6">
+    <div class="flex gap-6 border-b border-dark-700 mb-0">
+      <template x-for="tab in tabs" :key="tab.id">
+        <button @click="activeTab = tab.id"
+          class="pb-3 text-sm font-medium transition-colors"
+          :class="activeTab === tab.id ? 'tab-active' : 'tab-inactive'">
+          <span x-text="tab.icon + ' ' + tab.label"></span>
+        </button>
+      </template>
+    </div>
+  </div>
+
+  <!-- TAB CONTENT -->
+  <div class="px-6 py-6 flex-1 overflow-auto">
+
+    <!-- ── SCANNER ── -->
+    <div x-show="activeTab === 'scanner'" class="fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-semibold text-white">Token Scanner</h2>
+        <div class="flex gap-2">
+          <button @click="triggerDiscovery()"
+            class="text-xs bg-brand/20 border border-brand/40 text-brand-light px-3 py-1.5 rounded-lg hover:bg-brand/30 transition-colors">
+            ▶ Correr Discovery
+          </button>
+          <button @click="triggerMonitor()"
+            class="text-xs bg-sky-900/30 border border-sky-800/40 text-sky-400 px-3 py-1.5 rounded-lg hover:bg-sky-900/50 transition-colors">
+            ▶ Correr Monitor
+          </button>
+        </div>
+      </div>
+
+      <div x-show="tokens.length === 0" class="card p-12 text-center text-slate-500">
+        <p class="text-4xl mb-3">🔍</p>
+        <p class="font-medium">Sin tokens detectados aún</p>
+        <p class="text-sm mt-1">Presiona "Correr Discovery" para iniciar el escaneo</p>
+      </div>
+
+      <div x-show="tokens.length > 0" class="card overflow-hidden">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-dark-700 text-xs text-slate-500 uppercase tracking-wider">
+              <th class="text-left px-4 py-3">Token</th>
+              <th class="text-left px-4 py-3">Exchange</th>
+              <th class="text-left px-4 py-3">Patrón</th>
+              <th class="text-left px-4 py-3 w-48">Score</th>
+              <th class="text-right px-4 py-3">Inflow USD</th>
+              <th class="text-right px-4 py-3">Holders %</th>
+              <th class="text-right px-4 py-3">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="t in tokens" :key="t.id">
+              <tr class="border-b border-dark-700/50 hover:bg-dark-700/30 transition-colors">
+                <td class="px-4 py-3">
+                  <div class="font-mono font-bold text-white" x-text="t.symbol"></div>
+                  <div class="text-xs text-slate-600" x-text="fmtDate(t.last_checked) || '—'"></div>
+                </td>
+                <td class="px-4 py-3 text-slate-400 text-xs uppercase" x-text="t.exchange"></td>
+                <td class="px-4 py-3">
+                  <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                    :class="t.pattern_type === 'long_pump' ? 'badge-pump' : 'badge-classic'"
+                    x-text="t.pattern_type === 'long_pump' ? '🚀 Long Pump' : t.pattern_type === 'classic' ? '🎯 Classic' : t.pattern_type">
+                  </span>
+                </td>
+                <td class="px-4 py-3">
+                  <div class="flex items-center gap-2">
+                    <div class="flex-1 bg-dark-700 rounded-full h-2 overflow-hidden">
+                      <div class="h-2 rounded-full score-bar"
+                        :style="'width: ' + (t.detection_score || 0) + '%'"
+                        :class="(t.detection_score||0) >= 85 ? 'bg-red-500' : (t.detection_score||0) >= 70 ? 'bg-amber-500' : 'bg-emerald-500'">
+                      </div>
+                    </div>
+                    <span class="text-xs font-mono font-bold w-8 text-right"
+                      :class="(t.detection_score||0) >= 85 ? 'text-red-400' : (t.detection_score||0) >= 70 ? 'text-amber-400' : 'text-emerald-400'"
+                      x-text="(t.detection_score || 0).toFixed(0)">
+                    </span>
+                  </div>
+                </td>
+                <td class="px-4 py-3 text-right font-mono text-xs text-slate-300"
+                  x-text="t.inflow_usd ? '$' + fmtNum(t.inflow_usd) : '—'"></td>
+                <td class="px-4 py-3 text-right font-mono text-xs"
+                  :class="(t.holder_concentration_pct||0) >= 60 ? 'text-red-400' : 'text-slate-400'"
+                  x-text="t.holder_concentration_pct ? t.holder_concentration_pct.toFixed(1) + '%' : '—'"></td>
+                <td class="px-4 py-3 text-right">
+                  <span x-show="t.alert_sent" class="text-xs text-amber-400">🔔 Alertado</span>
+                  <span x-show="!t.alert_sent" class="text-xs text-slate-600">Sin alerta</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Live signals feed -->
+      <div x-show="liveSignals.length > 0" class="mt-4">
+        <h3 class="text-xs text-slate-500 uppercase tracking-wider mb-2">⚡ Señales en vivo (WebSocket)</h3>
+        <div class="space-y-2">
+          <template x-for="s in liveSignals.slice(0,5)" :key="s._ts">
+            <div class="card px-4 py-2 flex items-center justify-between fade-in">
+              <div class="flex items-center gap-3">
+                <span class="font-mono font-bold text-white" x-text="s.symbol"></span>
+                <span class="text-xs text-slate-500" x-text="s.pattern || s.type"></span>
+              </div>
+              <span class="font-mono text-sm font-bold text-amber-400" x-text="s.score ? s.score.toFixed(0) + ' pts' : ''"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ALERTAS ── -->
+    <div x-show="activeTab === 'alerts'" class="fade-in">
+      <h2 class="font-semibold text-white mb-4">Alertas Generadas</h2>
+
+      <div x-show="alertTokens.length === 0" class="card p-12 text-center text-slate-500">
+        <p class="text-4xl mb-3">🔔</p>
+        <p class="font-medium">Sin alertas aún</p>
+        <p class="text-sm mt-1">Las alertas aparecen cuando un token supera el score umbral</p>
+      </div>
+
+      <div class="grid gap-3">
+        <template x-for="t in alertTokens" :key="t.id">
+          <div class="card p-4 flex items-center gap-4 hover:border-amber-800/40 transition-colors">
+            <div class="text-2xl">🔔</div>
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <span class="font-mono font-bold text-white text-lg" x-text="t.symbol"></span>
+                <span class="text-xs px-2 py-0.5 rounded-full"
+                  :class="t.pattern_type === 'long_pump' ? 'badge-pump' : 'badge-classic'"
+                  x-text="t.pattern_type === 'long_pump' ? '🚀 Long Pump' : '🎯 Classic'">
+                </span>
+              </div>
+              <div class="text-xs text-slate-500 mt-0.5">
+                <span x-text="t.exchange?.toUpperCase()"></span>
+                · Detectado: <span x-text="fmtDate(t.added_at)"></span>
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-2xl font-bold font-mono"
+                :class="(t.detection_score||0) >= 85 ? 'text-red-400' : 'text-amber-400'"
+                x-text="(t.detection_score||0).toFixed(0)">
+              </div>
+              <div class="text-xs text-slate-600">pts</div>
+            </div>
+            <div class="w-24">
+              <div class="bg-dark-700 rounded-full h-3 overflow-hidden">
+                <div class="h-3 rounded-full"
+                  :style="'width: ' + (t.detection_score || 0) + '%'"
+                  :class="(t.detection_score||0) >= 85 ? 'bg-red-500' : 'bg-amber-500'">
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ── PORTFOLIO ── -->
+    <div x-show="activeTab === 'portfolio'" class="fade-in">
+      <h2 class="font-semibold text-white mb-4">Portfolio & Trades</h2>
+
+      <!-- Summary cards -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" x-show="summary">
+        <div class="card p-4 text-center">
+          <p class="text-xs text-slate-500 mb-1">Total Trades</p>
+          <p class="text-2xl font-bold text-white" x-text="summary?.total_trades ?? 0"></p>
+        </div>
+        <div class="card p-4 text-center">
+          <p class="text-xs text-slate-500 mb-1">Win Rate</p>
+          <p class="text-2xl font-bold text-emerald-400"
+            x-text="summary ? ((summary.win_rate ?? 0)*100).toFixed(0) + '%' : '—'"></p>
+        </div>
+        <div class="card p-4 text-center">
+          <p class="text-xs text-slate-500 mb-1">Mejor Trade</p>
+          <p class="text-2xl font-bold text-emerald-400"
+            x-text="summary?.best_trade_pct != null ? '+' + summary.best_trade_pct.toFixed(1) + '%' : '—'"></p>
+        </div>
+        <div class="card p-4 text-center">
+          <p class="text-xs text-slate-500 mb-1">PnL Promedio</p>
+          <p class="text-2xl font-bold"
+            :class="(summary?.avg_pnl_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'"
+            x-text="summary?.avg_pnl_pct != null ? (summary.avg_pnl_pct >= 0 ? '+' : '') + summary.avg_pnl_pct.toFixed(1) + '%' : '—'">
+          </p>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="card p-4 mb-6" x-show="trades.length > 0">
+        <h3 class="text-xs text-slate-500 uppercase tracking-wider mb-3">Curva de Equity</h3>
+        <canvas id="equityChart" height="100"></canvas>
+      </div>
+
+      <!-- Trades table -->
+      <div class="card overflow-hidden" x-show="trades.length > 0">
+        <div class="px-4 py-3 border-b border-dark-700 flex items-center justify-between">
+          <span class="text-xs text-slate-500 uppercase tracking-wider">Historial de Trades</span>
+          <span class="text-xs badge-paper px-2 py-0.5 rounded-full" x-show="paperMode">Paper Trading</span>
+        </div>
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-dark-700 text-xs text-slate-500 uppercase tracking-wider">
+              <th class="text-left px-4 py-3">#</th>
+              <th class="text-left px-4 py-3">Token</th>
+              <th class="text-left px-4 py-3">Exchange</th>
+              <th class="text-right px-4 py-3">Entrada</th>
+              <th class="text-right px-4 py-3">Salida</th>
+              <th class="text-right px-4 py-3">Capital</th>
+              <th class="text-right px-4 py-3">PnL</th>
+              <th class="text-right px-4 py-3">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="t in trades" :key="t.id">
+              <tr class="border-b border-dark-700/50 hover:bg-dark-700/30 transition-colors">
+                <td class="px-4 py-3 text-slate-600 font-mono text-xs" x-text="t.id"></td>
+                <td class="px-4 py-3 font-mono font-bold text-white" x-text="t.token_symbol"></td>
+                <td class="px-4 py-3 text-slate-400 text-xs uppercase" x-text="t.exchange"></td>
+                <td class="px-4 py-3 text-right font-mono text-xs text-slate-300"
+                  x-text="'$' + (t.entry_price || 0).toFixed(6)"></td>
+                <td class="px-4 py-3 text-right font-mono text-xs"
+                  :class="t.exit_price ? 'text-slate-300' : 'text-slate-600'"
+                  x-text="t.exit_price ? '$' + t.exit_price.toFixed(6) : '—'"></td>
+                <td class="px-4 py-3 text-right font-mono text-xs text-slate-400"
+                  x-text="'$' + (t.capital_used_usd || 0).toFixed(0)"></td>
+                <td class="px-4 py-3 text-right font-mono text-xs font-bold"
+                  :class="t.pnl_usd == null ? 'text-slate-600' : t.pnl_usd >= 0 ? 'text-emerald-400' : 'text-red-400'"
+                  x-text="t.pnl_usd != null ? (t.pnl_usd >= 0 ? '+' : '') + '$' + t.pnl_usd.toFixed(2) + ' (' + (t.pnl_pct >= 0 ? '+' : '') + t.pnl_pct?.toFixed(1) + '%)' : '—'">
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <span x-show="!t.exit_price"
+                    class="text-xs bg-sky-900/30 text-sky-400 border border-sky-800/40 px-2 py-0.5 rounded-full">Abierto</span>
+                  <span x-show="t.exit_price"
+                    class="text-xs bg-slate-800 text-slate-500 border border-slate-700 px-2 py-0.5 rounded-full">Cerrado</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <div x-show="trades.length === 0" class="card p-12 text-center text-slate-500">
+        <p class="text-4xl mb-3">📊</p>
+        <p class="font-medium">Sin trades aún</p>
+        <p class="text-sm mt-1">En modo PAPER, los trades se ejecutan automáticamente al detectar señales</p>
+      </div>
+    </div>
+
+    <!-- ── SISTEMA ── -->
+    <div x-show="activeTab === 'sistema'" class="fade-in">
+      <h2 class="font-semibold text-white mb-4">Estado del Sistema</h2>
+
+      <!-- Agent health grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <template x-for="agent in systemAgents" :key="agent.name">
+          <div class="card p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <span x-text="agentIcon(agent.name)" class="text-xl"></span>
+                <span class="font-semibold text-white capitalize" x-text="agent.name"></span>
+              </div>
+              <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                :class="{
+                  'bg-emerald-900/30 text-emerald-400 border border-emerald-800/40': agent.status === 'healthy',
+                  'bg-red-900/30 text-red-400 border border-red-800/40': agent.status === 'error' || agent.status === 'dead',
+                  'bg-slate-800 text-slate-500 border border-slate-700': agent.status === 'unknown'
+                }"
+                x-text="agent.status">
+              </span>
+            </div>
+            <div class="text-xs text-slate-500 space-y-1">
+              <div x-show="agent.last_activity">
+                Última actividad: <span class="text-slate-400" x-text="fmtDate(agent.last_activity)"></span>
+              </div>
+              <div x-show="agent.detail" class="text-slate-600" x-text="agent.detail"></div>
+              <div x-show="agent.restart_count > 0" class="text-amber-600">
+                Reinicios: <span x-text="agent.restart_count"></span>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Controls -->
+      <div class="card p-5 mb-4">
+        <h3 class="text-xs text-slate-500 uppercase tracking-wider mb-4">Controles Manuales</h3>
+        <div class="flex flex-wrap gap-3">
+          <button @click="triggerDiscovery()"
+            class="text-sm bg-brand/20 border border-brand/40 text-brand-light px-4 py-2 rounded-lg hover:bg-brand/30 transition-colors">
+            🔍 Correr Discovery
+          </button>
+          <button @click="triggerMonitor()"
+            class="text-sm bg-sky-900/30 border border-sky-800/40 text-sky-400 px-4 py-2 rounded-lg hover:bg-sky-900/50 transition-colors">
+            📡 Correr Monitor
+          </button>
+          <button @click="triggerLearner()"
+            class="text-sm bg-purple-900/30 border border-purple-800/40 text-purple-400 px-4 py-2 rounded-lg hover:bg-purple-900/50 transition-colors">
+            🧠 Correr Learner
+          </button>
+        </div>
+        <div x-show="actionMsg" class="mt-3 text-xs text-emerald-400 bg-emerald-900/20 border border-emerald-800/40 rounded px-3 py-2"
+          x-text="actionMsg"></div>
+      </div>
+
+      <!-- Config overview -->
+      <div class="card p-5" x-show="config">
+        <h3 class="text-xs text-slate-500 uppercase tracking-wider mb-4">Configuración Activa</h3>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+          <div>
+            <p class="text-xs text-slate-600">Capital Total</p>
+            <p class="font-mono text-white" x-text="config ? '$' + config.capital_total_usd : '—'"></p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-600">Umbral Alerta</p>
+            <p class="font-mono text-white" x-text="config ? config.alert_threshold + ' pts' : '—'"></p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-600">Umbral Claude</p>
+            <p class="font-mono text-white" x-text="config ? config.llm_validation_threshold + ' pts' : '—'"></p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-600">Stop Loss</p>
+            <p class="font-mono text-red-400" x-text="config ? config.stop_loss_pct + '%' : '—'"></p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-600">Take Profit 1 / 2 / 3</p>
+            <p class="font-mono text-emerald-400"
+              x-text="config ? config.take_profit_1_pct + '% / ' + config.take_profit_2_pct + '% / ' + config.take_profit_3_pct + '%' : '—'">
+            </p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-600">MEXC / Bitget</p>
+            <p class="font-mono text-white"
+              x-text="config ? config.mexc_allocation_pct + '% / ' + config.bitget_allocation_pct + '%' : '—'">
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /tab content -->
+</div><!-- /dashboard -->
+
+<!-- TOAST -->
+<div x-show="toast.show" x-cloak
+  class="fixed bottom-6 right-6 card px-4 py-3 text-sm border-brand/40 fade-in z-50"
+  x-text="toast.msg"></div>
+
+<script>
+function app() {
+  return {
+    token: localStorage.getItem('cas_token') || '',
+    form: { username: '', password: '', loading: false, error: '' },
+    activeTab: 'scanner',
+    loading: false,
+    lastUpdate: null,
+    paperMode: true,
+    circuitBreaker: false,
+    tokens: [],
+    trades: [],
+    summary: null,
+    config: null,
+    systemAgents: [],
+    liveSignals: [],
+    actionMsg: '',
+    toast: { show: false, msg: '' },
+    ws: null,
+    equityChart: null,
+    tabs: [
+      { id: 'scanner',   icon: '🔍', label: 'Scanner' },
+      { id: 'alerts',    icon: '🔔', label: 'Alertas' },
+      { id: 'portfolio', icon: '📊', label: 'Portfolio' },
+      { id: 'sistema',   icon: '⚙️',  label: 'Sistema' },
+    ],
+
+    get alertCount() {
+      return this.tokens.filter(t => t.alert_sent).length;
+    },
+    get alertTokens() {
+      return this.tokens.filter(t => t.alert_sent);
+    },
+
+    async init() {
+      if (this.token) {
+        await this.refreshAll();
+        this.connectWS();
+        setInterval(() => this.refreshAll(), 30000);
+      }
+    },
+
+    async login() {
+      this.form.loading = true;
+      this.form.error = '';
+      try {
+        const body = new URLSearchParams({ username: this.form.username, password: this.form.password });
+        const res = await fetch('/auth/login', {
+          method: 'POST', body,
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+        if (!res.ok) throw new Error('Credenciales incorrectas');
+        const data = await res.json();
+        this.token = data.access_token;
+        localStorage.setItem('cas_token', this.token);
+        await this.refreshAll();
+        this.connectWS();
+        setInterval(() => this.refreshAll(), 30000);
+      } catch (e) {
+        this.form.error = e.message;
+      } finally {
+        this.form.loading = false;
+      }
+    },
+
+    logout() {
+      this.token = '';
+      localStorage.removeItem('cas_token');
+      if (this.ws) this.ws.close();
+    },
+
+    async api(path, opts = {}) {
+      const res = await fetch(path, {
+        ...opts,
+        headers: { 'Authorization': 'Bearer ' + this.token, ...(opts.headers || {}) }
+      });
+      if (res.status === 401) { this.logout(); return null; }
+      return res.ok ? res.json() : null;
+    },
+
+    async refreshAll() {
+      this.loading = true;
+      try {
+        const [toks, trd, sum, cfg, health, agStatus] = await Promise.all([
+          this.api('/tokens?limit=200'),
+          this.api('/trades?page_size=100'),
+          this.api('/trades/summary'),
+          this.api('/config'),
+          this.api('/system/health'),
+          this.api('/agents/status'),
+        ]);
+
+        if (toks)    this.tokens = toks;
+        if (trd)     this.trades = trd;
+        if (sum)     this.summary = sum;
+        if (cfg) {
+          this.config = cfg;
+          this.paperMode = cfg.paper_trading;
+        }
+        if (health?.agents) this.systemAgents = health.agents;
+        if (agStatus) this.circuitBreaker = agStatus.circuit_breaker_active;
+
+        this.lastUpdate = new Date().toLocaleTimeString('es', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        this.$nextTick(() => this.renderChart());
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    connectWS() {
+      if (!this.token) return;
+      const wsUrl = `ws://${location.host}/ws/signals?token=${this.token}`;
+      this.ws = new WebSocket(wsUrl);
+      this.ws.onmessage = (e) => {
+        const d = JSON.parse(e.data);
+        if (d.type === 'ping') return;
+        d._ts = Date.now();
+        this.liveSignals.unshift(d);
+        if (this.liveSignals.length > 20) this.liveSignals.pop();
+        this.showToast(`⚡ Nueva señal: ${d.symbol || ''} ${d.score ? d.score.toFixed(0) + 'pts' : ''}`);
+      };
+      this.ws.onclose = () => setTimeout(() => this.connectWS(), 5000);
+    },
+
+    renderChart() {
+      const closed = this.trades.filter(t => t.pnl_usd != null).reverse();
+      if (!closed.length) return;
+      let cum = 0;
+      const labels = closed.map((t, i) => '#' + (i+1));
+      const data = closed.map(t => { cum += t.pnl_usd; return +cum.toFixed(2); });
+
+      const ctx = document.getElementById('equityChart');
+      if (!ctx) return;
+      if (this.equityChart) this.equityChart.destroy();
+      this.equityChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'PnL Acumulado (USD)',
+            data,
+            borderColor: data[data.length-1] >= 0 ? '#10b981' : '#ef4444',
+            backgroundColor: data[data.length-1] >= 0 ? '#10b98122' : '#ef444422',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 3,
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: '#475569' }, grid: { color: '#1e293b' } },
+            y: { ticks: { color: '#475569', callback: v => '$' + v }, grid: { color: '#1e293b' } }
+          }
+        }
+      });
+    },
+
+    async triggerDiscovery() {
+      await this.api('/agents/discovery/run', { method: 'POST' });
+      this.actionMsg = '✓ Discovery encolado — ejecutará en segundos';
+      this.showToast('🔍 Discovery iniciado');
+      setTimeout(() => this.actionMsg = '', 4000);
+    },
+    async triggerMonitor() {
+      await this.api('/agents/monitor/run', { method: 'POST' });
+      this.actionMsg = '✓ Monitor encolado — ejecutará en segundos';
+      this.showToast('📡 Monitor iniciado');
+      setTimeout(() => this.actionMsg = '', 4000);
+    },
+    async triggerLearner() {
+      await this.api('/agents/learner/evaluate', { method: 'POST' });
+      this.actionMsg = '✓ Learner encolado — ejecutará en segundos';
+      this.showToast('🧠 Learner iniciado');
+      setTimeout(() => this.actionMsg = '', 4000);
+    },
+
+    showToast(msg) {
+      this.toast = { show: true, msg };
+      setTimeout(() => this.toast.show = false, 3500);
+    },
+
+    agentIcon(name) {
+      const icons = { discovery:'🔍', monitor:'📡', detector:'🎯', scorer:'🔔', executor:'⚡', learner:'🧠', dashboard:'📊' };
+      return icons[name] || '🤖';
+    },
+
+    fmtDate(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return d.toLocaleDateString('es', { day:'2-digit', month:'2-digit' }) + ' ' +
+             d.toLocaleTimeString('es', { hour:'2-digit', minute:'2-digit' });
+    },
+
+    fmtNum(n) {
+      if (!n) return '0';
+      if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+      if (n >= 1e3) return (n/1e3).toFixed(0) + 'k';
+      return n.toFixed(0);
+    },
+  }
+}
+</script>
+</body>
+</html>
