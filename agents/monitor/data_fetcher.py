@@ -7,17 +7,17 @@ import structlog
 import ccxt.async_support as ccxt_async
 
 from .schemas import TokenSnapshot
-from .onchain_client import GlassnodeClient
+from .onchain_client import OnchainClient
 
 log = structlog.get_logger(__name__)
 
-# Límite de concurrencia para no saturar APIs
+# Límite de concurrencia para no saturar APIs de exchange
 _SEMAPHORE = asyncio.Semaphore(8)
 
 
 class DataFetcher:
     def __init__(self) -> None:
-        self._glassnode = GlassnodeClient()
+        self._onchain = OnchainClient()
         self._exchanges: dict[str, ccxt_async.Exchange] = {}
 
     async def _get_exchange(self, exchange_id: str) -> ccxt_async.Exchange:
@@ -105,7 +105,22 @@ class DataFetcher:
         pair = f"{symbol}/USDT"
         errors: list[str] = []
 
-        # Try primary exchange, then fallback
+        # ── Onchain calls (independientes del exchange) ───────────────────────
+        (
+            cq_inflow,
+            ls_ratio,
+            cg_oi,
+            holder_count,
+        ) = await asyncio.gather(
+            self._onchain.get_exchange_inflow(symbol),
+            self._onchain.get_long_short_ratio(symbol),
+            self._onchain.get_open_interest(symbol),
+            self._onchain.get_holder_count(None),   # sin contract address por ahora
+            return_exceptions=False,
+        )
+
+        # ── Exchange calls con fallback ───────────────────────────────────────
+        ticker = orderbook = funding = open_interest = None
         for attempt_exchange in [exchange_id, self._FALLBACK.get(exchange_id, "")]:
             if not attempt_exchange:
                 break
@@ -121,24 +136,18 @@ class DataFetcher:
                     orderbook,
                     funding,
                     open_interest,
-                    inflow_1h,
-                    inflow_4h,
-                    holder_pct,
                 ) = await asyncio.gather(
                     self._fetch_ticker(exchange, pair),
                     self._fetch_orderbook(exchange, pair),
                     self._fetch_funding_rate(exchange, pair),
                     self._fetch_open_interest(exchange, pair),
-                    self._glassnode.get_exchange_inflow_usd(symbol, hours=1),
-                    self._glassnode.get_exchange_inflow_usd(symbol, hours=4),
-                    self._glassnode.get_top10_holder_pct(symbol),
                     return_exceptions=False,
                 )
 
             if ticker is not None:
                 if attempt_exchange != exchange_id:
                     log.info("data_fetcher.fallback_exchange_used", symbol=symbol, fallback=attempt_exchange)
-                exchange_id = attempt_exchange  # usar el exchange que funcionó
+                exchange_id = attempt_exchange
                 break
 
         if ticker is None:
@@ -149,12 +158,17 @@ class DataFetcher:
         if not current_price:
             return None
 
-        # Proxy de inflow via volumen cuando Glassnode no disponible
         volume_usd = self._safe(ticker.get("quoteVolume"))
-        if inflow_4h is None and volume_usd:
-            inflow_4h = volume_usd * 0.15  # heurística: ~15% del vol diario como inflow 4h
 
-        onchain_available = inflow_1h is not None or holder_pct is not None
+        # Inflow: CryptoQuant si disponible, si no proxy vol×15%
+        inflow_4h = cq_inflow
+        if inflow_4h is None and volume_usd:
+            inflow_4h = volume_usd * 0.15
+
+        # OI: Coinglass tiene prioridad; fallback a CCXT
+        oi_usd = cg_oi or (open_interest.get("openInterestValue") if open_interest else None)
+
+        onchain_available = ls_ratio is not None or cg_oi is not None or cq_inflow is not None
 
         snapshot = TokenSnapshot(
             symbol=symbol,
@@ -164,12 +178,14 @@ class DataFetcher:
             price_change_24h_pct=self._safe(ticker.get("percentage")),
             volume_24h_usd=volume_usd,
             bid_ask_spread_pct=self._calc_spread_pct(orderbook),
-            inflow_1h_usd=inflow_1h,
+            inflow_1h_usd=None,
             inflow_4h_usd=inflow_4h,
             inflow_24h_usd=volume_usd,
-            holder_top10_pct=holder_pct,
+            holder_top10_pct=None,
+            total_holders=holder_count,
             funding_rate=funding.get("fundingRate") if funding else None,
-            open_interest_usd=open_interest.get("openInterestValue") if open_interest else None,
+            open_interest_usd=oi_usd,
+            long_short_ratio=ls_ratio,
             onchain_available=onchain_available,
             fetch_errors=errors,
         )

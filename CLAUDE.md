@@ -26,6 +26,7 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - [x] Fase 10 — Tests
 - [x] Fase 11 — Frontend/UI del Dashboard (HTML + Chart.js + Alpine.js, puerto 8001)
 - [x] Fase 12 — Pantalla Performance (GET /performance/metrics + performance.html con semáforos y veredicto Glassnode)
+- [x] Fase 13 — On-chain multi-fuente: Coinglass + Etherscan + CryptoQuant (reemplaza Glassnode $999/mes)
 
 ## Reglas globales
 - Todo el código debe ser async
@@ -46,6 +47,8 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - Cuando un token supere score 70+, el Scorer enviará alerta por Telegram
 - Revisar aprendizaje del Learner tras los primeros trades paper
 - Performance UI: http://localhost:8001/static/performance.html (link en nav del dashboard)
+- On-chain: Coinglass (sin key), Etherscan (key gratuita), CryptoQuant (key gratuita)
+- ALERT_THRESHOLD=62 (bajado de 70; máx teórico sin Glassnode = 93 pts)
 ## Instrucción de mantenimiento
 Al finalizar cada sesión de trabajo, actualizar este archivo 
 con los cambios realizados y el próximo paso pendiente.

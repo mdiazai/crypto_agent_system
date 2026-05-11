@@ -2,10 +2,15 @@
 Patrón A — Long Pump
 
 Señales:
-  1. Inflow masivo hacia exchange (1-4h)   → 0-40 pts
-  2. Holder concentration > 60% en top-10  → 0-25 pts
-  3. Precio estable (acumulación silenciosa)→ 0-20 pts
-  4. Bajo short pressure (funding positivo) → 0-15 pts
+  1. Inflow masivo hacia exchange (4h proxy)     → 0-40 pts
+  2. Señales suplementarias — Coinglass+Etherscan → 0-18 pts
+       2a. Long/Short ratio (Coinglass)           → 0-8 pts
+       2b. Open Interest vs volumen               → 0-5 pts
+       2c. Concentración de holders (Etherscan)   → 0-5 pts
+  3. Precio estable (acumulación silenciosa)      → 0-20 pts
+  4. Bajo short pressure / funding CCXT           → 0-15 pts
+
+Máximo teórico: 93 pts (umbral de alerta: 62)
 """
 from agents.monitor.schemas import TokenSnapshot
 from shared.config import settings
@@ -14,20 +19,22 @@ from .schemas import PatternBreakdown, ScoreWeights
 
 def score(snapshot: TokenSnapshot, weights: ScoreWeights) -> PatternBreakdown:
     inflow_s = _inflow_signal(snapshot.inflow_4h_usd) * weights.lp_inflow
-    holder_s = _holder_signal(snapshot.holder_top10_pct) * weights.lp_holder
-    price_s = _price_stability_signal(snapshot.price_change_24h_pct) * weights.lp_price_stability
-    short_s = _short_pressure_signal(snapshot.funding_rate) * weights.lp_short_pressure
+    suppl_s  = _supplemental_signal(snapshot)          # sin weight — señal fija
+    price_s  = _price_stability_signal(snapshot.price_change_24h_pct) * weights.lp_price_stability
+    short_s  = _short_pressure_signal(snapshot.funding_rate) * weights.lp_short_pressure
 
-    normalized = min(100.0, inflow_s + holder_s + price_s + short_s)
+    normalized = min(100.0, inflow_s + suppl_s + price_s + short_s)
 
     return PatternBreakdown(
         score=round(normalized, 2),
         inflow_signal=round(inflow_s, 2),
-        holder_signal=round(holder_s, 2),
+        holder_signal=round(suppl_s, 2),     # reutiliza campo holder_signal del schema
         price_stability_signal=round(price_s, 2),
         funding_rate_signal=round(short_s, 2),
     )
 
+
+# ── Señal 1: Inflow ───────────────────────────────────────────────────────────
 
 def _inflow_signal(inflow_usd: float | None) -> float:
     """Máx 40 pts. Escala logarítmica respecto al umbral configurado."""
@@ -38,28 +45,62 @@ def _inflow_signal(inflow_usd: float | None) -> float:
     if ratio >= 5.0:
         return 40.0
     if ratio >= 1.0:
-        # 20-40 pts lineales entre 1x y 5x threshold
         return 20.0 + (ratio - 1.0) / 4.0 * 20.0
-    # 0-20 pts por debajo del threshold
     return ratio * 20.0
 
 
-def _holder_signal(holder_pct: float | None) -> float:
-    """Máx 25 pts. Concentración > 60% activa la señal."""
-    if holder_pct is None:
-        return 0.0
-    threshold = settings.holder_concentration_threshold  # default 60
-    if holder_pct >= 85:
-        return 25.0
-    if holder_pct >= 75:
-        return 20.0
-    if holder_pct >= threshold:
-        # 12.5-20 pts lineales entre threshold y 75%
-        return 12.5 + (holder_pct - threshold) / (75 - threshold) * 7.5
-    if holder_pct >= threshold * 0.8:
-        return (holder_pct - threshold * 0.8) / (threshold * 0.2) * 12.5
-    return 0.0
+# ── Señal 2: Suplementaria (reemplaza holder de Glassnode) ───────────────────
 
+def _supplemental_signal(snapshot: TokenSnapshot) -> float:
+    """
+    Máx 18 pts. Combina 3 sub-señales de Coinglass + Etherscan:
+      - Long/Short ratio  → 0-8 pts
+      - OI / volumen      → 0-5 pts
+      - Holder count      → 0-5 pts
+    """
+    total = 0.0
+
+    # 2a. Long/Short ratio de Coinglass (8 pts)
+    # Más longs = menos resistencia al pump = señal positiva
+    ls = snapshot.long_short_ratio
+    if ls is not None:
+        if ls >= 1.5:
+            total += 8.0
+        elif ls >= 1.2:
+            total += 6.0
+        elif ls >= 1.0:
+            total += 4.0
+        elif ls >= 0.8:
+            total += 1.0
+
+    # 2b. Open Interest / Volumen (5 pts)
+    # OI alto relativo al volumen = grandes posiciones abiertas = movimiento potencial
+    oi  = snapshot.open_interest_usd
+    vol = snapshot.volume_24h_usd
+    if oi is not None and vol is not None and vol > 0:
+        oi_ratio = oi / vol
+        if oi_ratio >= 0.5:
+            total += 5.0
+        elif oi_ratio >= 0.2:
+            total += 3.0
+        elif oi_ratio >= 0.1:
+            total += 1.0
+
+    # 2c. Holder concentration aproximada via Etherscan (5 pts)
+    # Menos holders únicos = token más concentrado = pump más coordinable
+    holders = snapshot.total_holders
+    if holders is not None:
+        if holders <= 1_000:
+            total += 5.0
+        elif holders <= 5_000:
+            total += 3.0
+        elif holders <= 15_000:
+            total += 1.0
+
+    return min(18.0, total)
+
+
+# ── Señal 3: Estabilidad de precio ───────────────────────────────────────────
 
 def _price_stability_signal(change_24h: float | None) -> float:
     """Máx 20 pts. Precio estable = acumulación silenciosa."""
@@ -74,8 +115,10 @@ def _price_stability_signal(change_24h: float | None) -> float:
         return 12.0
     if abs_change <= 15.0:
         return 5.0
-    return 0.0  # ya está moviendo fuerte
+    return 0.0
 
+
+# ── Señal 4: Short pressure / funding (CCXT) ─────────────────────────────────
 
 def _short_pressure_signal(funding_rate: float | None) -> float:
     """Máx 15 pts. Funding positivo = longs dominan = menos resistencia al pump."""
@@ -89,4 +132,4 @@ def _short_pressure_signal(funding_rate: float | None) -> float:
         return 8.0
     if funding_rate >= -0.005:
         return 4.0
-    return 0.0  # funding muy negativo = mucho shorting
+    return 0.0

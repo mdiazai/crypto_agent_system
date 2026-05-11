@@ -29,8 +29,9 @@ class Settings(BaseSettings):
     telegram_chat_id: str = Field(...)
 
     # ── On-Chain APIs ─────────────────────────────────────────────────────────
-    glassnode_api_key: SecretStr = Field(default="")
-    etherscan_api_key: SecretStr = Field(default="")
+    glassnode_api_key: SecretStr = Field(default="")   # deprecated — no usado
+    etherscan_api_key: SecretStr = Field(default="")   # Etherscan free tier
+    cryptoquant_api_key: SecretStr = Field(default="") # CryptoQuant free tier
     solscan_api_key: SecretStr = Field(default="")
 
     # ── Market Data ───────────────────────────────────────────────────────────

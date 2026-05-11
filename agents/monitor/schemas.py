@@ -28,12 +28,13 @@ class TokenSnapshot(BaseModel):
     total_holders: Optional[int] = None
 
     # ── Futuros/Derivados (para patrón Classic) ───────────────────────────────
-    funding_rate: Optional[float] = None       # % por período (negativo = bearish)
+    funding_rate: Optional[float] = None       # % por período CCXT (negativo = bearish)
     open_interest_usd: Optional[float] = None
     short_interest_pct: Optional[float] = None # % del float en short
+    long_short_ratio: Optional[float] = None   # Coinglass: longs/shorts (>1 = longs dominan)
 
     # ── Metadatos de calidad del snapshot ────────────────────────────────────
-    onchain_available: bool = False            # True si Glassnode devolvió datos
+    onchain_available: bool = False            # True si alguna fuente on-chain devolvió datos
     fetch_errors: list[str] = Field(default_factory=list)
 
 
