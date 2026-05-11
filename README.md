@@ -1,5 +1,7 @@
 # Crypto Agent System — Criminal Pump Detector
 
+[![GitHub](https://img.shields.io/badge/GitHub-mdiazai%2Fcrypto__agent__system-181717?logo=github)](https://github.com/mdiazai/crypto_agent_system)
+
 Sistema multi-agente de trading automatizado basado en el caso real del canal **KManuS88**, que transformó **$640 → $1,752** en 60-80 días detectando patrones de "Criminal Pump" en altcoins de baja capitalización.
 
 ---
