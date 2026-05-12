@@ -26,6 +26,7 @@ class TokenCandidateResponse(BaseModel):
     pattern_type: str
     holder_concentration_pct: Optional[float]
     inflow_usd: Optional[float]
+    volume_24h_usd: Optional[float] = None
     alert_sent: bool
     added_at: datetime
     last_checked: Optional[datetime]

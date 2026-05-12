@@ -180,8 +180,8 @@
               <th class="text-left px-4 py-3">Exchange</th>
               <th class="text-left px-4 py-3">Patrón</th>
               <th class="text-left px-4 py-3 w-48">Score</th>
-              <th class="text-right px-4 py-3">Inflow USD</th>
-              <th class="text-right px-4 py-3">Holders %</th>
+              <th class="text-right px-4 py-3">Inflow 4h</th>
+              <th class="text-right px-4 py-3">Vol 24h</th>
               <th class="text-right px-4 py-3">Estado</th>
             </tr>
           </thead>
@@ -204,20 +204,19 @@
                     <div class="flex-1 bg-dark-700 rounded-full h-2 overflow-hidden">
                       <div class="h-2 rounded-full score-bar"
                         :style="'width: ' + (t.detection_score || 0) + '%'"
-                        :class="(t.detection_score||0) >= 85 ? 'bg-red-500' : (t.detection_score||0) >= 70 ? 'bg-amber-500' : 'bg-emerald-500'">
+                        :class="(t.detection_score||0) >= 80 ? 'bg-red-500' : (t.detection_score||0) >= 62 ? 'bg-amber-500' : 'bg-emerald-500'">
                       </div>
                     </div>
                     <span class="text-xs font-mono font-bold w-8 text-right"
-                      :class="(t.detection_score||0) >= 85 ? 'text-red-400' : (t.detection_score||0) >= 70 ? 'text-amber-400' : 'text-emerald-400'"
+                      :class="(t.detection_score||0) >= 80 ? 'text-red-400' : (t.detection_score||0) >= 62 ? 'text-amber-400' : 'text-emerald-400'"
                       x-text="(t.detection_score || 0).toFixed(0)">
                     </span>
                   </div>
                 </td>
                 <td class="px-4 py-3 text-right font-mono text-xs text-slate-300"
                   x-text="t.inflow_usd ? '$' + fmtNum(t.inflow_usd) : '—'"></td>
-                <td class="px-4 py-3 text-right font-mono text-xs"
-                  :class="(t.holder_concentration_pct||0) >= 60 ? 'text-red-400' : 'text-slate-400'"
-                  x-text="t.holder_concentration_pct ? t.holder_concentration_pct.toFixed(1) + '%' : '—'"></td>
+                <td class="px-4 py-3 text-right font-mono text-xs text-slate-400"
+                  x-text="t.volume_24h_usd ? '$' + fmtNum(t.volume_24h_usd) : '—'"></td>
                 <td class="px-4 py-3 text-right">
                   <span x-show="t.alert_sent" class="text-xs text-amber-400">🔔 Alertado</span>
                   <span x-show="!t.alert_sent" class="text-xs text-slate-600">Sin alerta</span>

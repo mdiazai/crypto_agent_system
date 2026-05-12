@@ -45,6 +45,7 @@ class TokenCandidate(Base):
     )
     holder_concentration_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     inflow_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    volume_24h_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     alert_sent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 

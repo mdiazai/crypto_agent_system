@@ -85,6 +85,8 @@ class DetectorAgent:
                         detection_score=scored.composite_score,
                         pattern_type=pattern,
                         last_checked=datetime.now(timezone.utc),
+                        inflow_usd=scored.inflow_4h_usd,
+                        volume_24h_usd=scored.volume_24h_usd,
                     )
                 )
         except Exception as e:

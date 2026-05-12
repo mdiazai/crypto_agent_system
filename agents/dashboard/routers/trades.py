@@ -19,7 +19,7 @@ def _trade_to_response(t: Trade) -> TradeResponse:
         id=t.id,
         token_symbol=t.token_symbol,
         exchange=t.exchange,
-        direction=str(t.direction),
+        direction=t.direction.value,
         entry_price=t.entry_price,
         exit_price=t.exit_price,
         quantity=t.quantity,
@@ -29,7 +29,7 @@ def _trade_to_response(t: Trade) -> TradeResponse:
         pnl_usd=t.pnl_usd,
         pnl_pct=t.pnl_pct,
         pattern_detected=t.pattern_detected,
-        entry_quality=str(t.entry_quality) if t.entry_quality else None,
+        entry_quality=t.entry_quality.value if t.entry_quality else None,
         score_at_entry=t.score_at_entry,
         is_paper=t.is_paper,
     )
