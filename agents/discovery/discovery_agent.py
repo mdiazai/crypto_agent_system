@@ -50,6 +50,10 @@ class DiscoveryAgent:
             hour=settings.discovery_schedule_hour,
         )
 
+        # Listen for manual triggers from Dashboard
+        await bus.subscribe("channel:control:discovery:run", self._handle_manual_trigger)
+        await bus.start_listening()
+
         # Run immediately on startup
         await self.run()
 
@@ -60,6 +64,11 @@ class DiscoveryAgent:
         except asyncio.CancelledError:
             self._scheduler.shutdown(wait=False)
             await bus.disconnect()
+
+    async def _handle_manual_trigger(self, payload: dict) -> None:
+        source = payload.get("source", "unknown")
+        log.info("discovery_agent.manual_trigger", source=source)
+        await self.run()
 
     @RUN_DURATION.time()
     async def run(self) -> DiscoveryResult:

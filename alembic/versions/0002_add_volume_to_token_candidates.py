@@ -15,9 +15,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "token_candidates",
-        sa.Column("volume_24h_usd", sa.Float(), nullable=True),
+    op.execute(
+        "ALTER TABLE token_candidates ADD COLUMN IF NOT EXISTS volume_24h_usd FLOAT"
     )
 
 

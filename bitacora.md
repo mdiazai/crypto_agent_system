@@ -821,5 +821,66 @@ Si estuvieras empezando este proyecto desde cero hoy, estas serían las decision
 
 ---
 
-*Última actualización: Mayo 2026*
-*Estado: PRODUCCIÓN (paper trading) — esperando primer trade paper*
+*Última actualización: 13 Mayo 2026*
+*Estado: PRODUCCIÓN (paper trading) — 4 trades paper abiertos (ACN x2, LAB x2)*
+
+---
+
+## Sesión 2026-05-13 — Diagnóstico pipeline + fixes de observabilidad
+
+### Contexto
+El dashboard mostraba Discovery como "unhealthy" y Detector/Scorer/Learner como "sin datos en DB".
+Se realizó diagnóstico completo del pipeline para entender qué estaba pasando.
+
+### Diagnóstico
+- **Discovery unhealthy**: Correcto comportamiento. APScheduler con cron a las 2 AM UTC.
+  El agente corre al startup y luego una vez al día. Pasó más de 10 minutos desde el startup,
+  y el health check usaba `_HEALTHY_WINDOW = 10 min` → siempre unhealthy.
+  
+- **Detector "sin datos en DB"**: El Detector sí procesaba los 534 snapshots por ciclo y 
+  actualizaba scores en la DB. El health check en el orchestrator usaba `Alert.sent_at` 
+  (tabla vacía porque nadie superó el umbral de 62) en lugar de `TokenCandidate.last_checked`.
+  
+- **Pipeline probado con test manual**: `redis-cli PUBLISH channel:monitor:pump_signal '...'`
+  → Detector respondió correctamente con `invalid_snapshot` (faltaba `current_price`).
+  Confirma que el bus Redis funciona y el Detector escucha.
+
+- **Primer trade confirmado**: Se encontraron 4 trades paper en la DB (ACN x2, LAB x2) 
+  ejecutados a las 00:37 UTC. El pipeline funciona de punta a punta.
+
+### Cambios realizados
+
+**`agents/discovery/discovery_agent.py`**
+- Agrega `bus.subscribe("channel:control:discovery:run", _handle_manual_trigger)`
+- Agrega `bus.start_listening()` en `start()`
+- Nuevo método `_handle_manual_trigger()` → llama `self.run()` cuando Dashboard lo solicita
+- El botón "Forzar scan ahora" en el Dashboard ahora funciona
+
+**`orchestrator/agent_supervisor.py`**
+- `_check_discovery`: ventana de salud 25h en lugar de 10min (se ejecuta diariamente)
+- `_check_detector`: usa `MAX(TokenCandidate.last_checked WHERE detection_score IS NOT NULL)`
+  en lugar de `MAX(Alert.sent_at)` → refleja actividad real del Detector
+- `_check_scorer/learner/executor`: mensajes null descriptivos por agente
+- `_make_health()`: nuevo parámetro `healthy_window` (antes solo `degraded_window`)
+- `_make_health()`: nuevo parámetro `no_data_detail` para mensaje personalizado por agente
+
+**`agents/dashboard/static/index.html`**
+- Auto-refresh: 30 s → 60 s
+- Card de Discovery: botón "🔄 Forzar scan ahora" que llama `POST /agents/discovery/run`
+- Card de Monitor: línea con "Tokens monitoreados: N" (usa `tokens.length` del estado Alpine)
+
+**`alembic/versions/0002_add_volume_to_token_candidates.py`**
+- Reescrito con `ADD COLUMN IF NOT EXISTS` vía `op.execute()` en lugar de `op.add_column()`
+- El orchestrator crasheaba al reiniciar porque la columna ya existía (añadida manualmente)
+- Se hizo `UPDATE alembic_version SET version_num = '0002'` para marcarla como aplicada
+
+### Estado post-fix del health endpoint
+```
+discovery  healthy  — última actividad hace 1 min (ran at startup)
+monitor    healthy  — última actividad hace 0 min (ciclo cada ~2 min)
+detector   healthy  — última actividad hace 0 min (scores actualizados)
+scorer     unknown  — esperando primer score ≥ umbral
+executor   degraded — última actividad hace 51 min (4 trades abiertos)
+learner    unknown  — esperando primer trade cerrado
+dashboard  healthy  — HTTP 200 OK
+```

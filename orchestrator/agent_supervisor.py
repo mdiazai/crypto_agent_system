@@ -19,6 +19,7 @@ import redis.asyncio as aioredis
 from sqlalchemy import select, func
 
 from shared.config import settings
+from sqlalchemy import and_
 from shared.models import TokenCandidate, Alert, Trade, LearningLog, get_session
 
 from .schemas import AgentHealth, AgentStatus, SystemHealth
@@ -112,7 +113,13 @@ class AgentSupervisor:
                     select(func.max(TokenCandidate.added_at))
                 )
             ).scalar_one_or_none()
-        return _make_health("discovery", last, now)
+        # Discovery corre una vez al día: ventana de 25h es "sano"
+        return _make_health(
+            "discovery", last, now,
+            healthy_window=timedelta(hours=25),
+            degraded_window=timedelta(hours=50),
+            no_data_detail="sin candidatos en DB",
+        )
 
     async def _check_monitor(self, now: datetime) -> AgentHealth:
         async with get_session() as session:
@@ -124,19 +131,31 @@ class AgentSupervisor:
         return _make_health("monitor", last, now, degraded_window=timedelta(minutes=12))
 
     async def _check_detector(self, now: datetime) -> AgentHealth:
+        # El Detector actualiza detection_score en token_candidates; no depende de alertas
         async with get_session() as session:
             last = (
-                await session.execute(select(func.max(Alert.sent_at)))
+                await session.execute(
+                    select(func.max(TokenCandidate.last_checked)).where(
+                        TokenCandidate.detection_score.is_not(None)
+                    )
+                )
             ).scalar_one_or_none()
-        # Detector no siempre genera alertas; usar ventana más amplia
-        return _make_health("detector", last, now, degraded_window=timedelta(hours=2))
+        return _make_health(
+            "detector", last, now,
+            degraded_window=timedelta(minutes=15),
+            no_data_detail="esperando primera señal",
+        )
 
     async def _check_scorer(self, now: datetime) -> AgentHealth:
         async with get_session() as session:
             last = (
                 await session.execute(select(func.max(Alert.sent_at)))
             ).scalar_one_or_none()
-        return _make_health("scorer", last, now, degraded_window=timedelta(hours=2))
+        return _make_health(
+            "scorer", last, now,
+            degraded_window=timedelta(hours=2),
+            no_data_detail="esperando primer score ≥ umbral",
+        )
 
     async def _check_executor(self, now: datetime) -> AgentHealth:
         async with get_session() as session:
@@ -144,14 +163,22 @@ class AgentSupervisor:
                 await session.execute(select(func.max(Trade.entry_time)))
             ).scalar_one_or_none()
         # Executor puede no tener trades si no hay señales
-        return _make_health("executor", last, now, degraded_window=timedelta(hours=6))
+        return _make_health(
+            "executor", last, now,
+            degraded_window=timedelta(hours=6),
+            no_data_detail="esperando primera señal de trade",
+        )
 
     async def _check_learner(self, now: datetime) -> AgentHealth:
         async with get_session() as session:
             last = (
                 await session.execute(select(func.max(LearningLog.created_at)))
             ).scalar_one_or_none()
-        return _make_health("learner", last, now, degraded_window=timedelta(hours=26))
+        return _make_health(
+            "learner", last, now,
+            degraded_window=timedelta(hours=26),
+            no_data_detail="esperando primer trade cerrado",
+        )
 
     async def _check_dashboard(self) -> AgentHealth:
         try:
@@ -173,16 +200,18 @@ def _make_health(
     name: str,
     last: Optional[datetime],
     now: datetime,
+    healthy_window: timedelta = _HEALTHY_WINDOW,
     degraded_window: timedelta = _DEGRADED_WINDOW,
+    no_data_detail: str = "sin datos en DB",
 ) -> AgentHealth:
     if last is None:
-        return AgentHealth(name=name, status="unknown", detail="sin datos en DB")
+        return AgentHealth(name=name, status="unknown", detail=no_data_detail)
 
     if last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
 
     delta = now - last
-    if delta <= _HEALTHY_WINDOW:
+    if delta <= healthy_window:
         status: AgentStatus = "healthy"
     elif delta <= degraded_window:
         status = "degraded"
