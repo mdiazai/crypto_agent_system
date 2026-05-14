@@ -147,6 +147,17 @@ class AgentSupervisor:
         )
 
     async def _check_scorer(self, now: datetime) -> AgentHealth:
+        # Heartbeat escrito por el scorer cada vez que procesa un token ≥ umbral
+        if self._redis:
+            hb = await self._redis.get("scorer:heartbeat")
+            if hb is not None:
+                return AgentHealth(
+                    name="scorer",
+                    status="healthy",
+                    last_activity=now,
+                    detail=f"activo — última señal: {hb}",
+                )
+        # Fallback: última alerta guardada en DB
         async with get_session() as session:
             last = (
                 await session.execute(select(func.max(Alert.sent_at)))
@@ -158,11 +169,26 @@ class AgentSupervisor:
         )
 
     async def _check_executor(self, now: datetime) -> AgentHealth:
+        # Heartbeat escrito por el position_monitor_loop cada 30s
+        if self._redis:
+            hb = await self._redis.get("executor:heartbeat")
+            if hb is not None:
+                open_pos = int(hb)
+                detail = (
+                    f"activo — {open_pos} posición{'es' if open_pos != 1 else ''} abierta{'s' if open_pos != 1 else ''}"
+                    if open_pos > 0 else "activo — sin posiciones abiertas"
+                )
+                return AgentHealth(
+                    name="executor",
+                    status="healthy",
+                    last_activity=now,
+                    detail=detail,
+                )
+        # Fallback: última entrada en DB si el heartbeat expiró
         async with get_session() as session:
             last = (
                 await session.execute(select(func.max(Trade.entry_time)))
             ).scalar_one_or_none()
-        # Executor puede no tener trades si no hay señales
         return _make_health(
             "executor", last, now,
             degraded_window=timedelta(hours=6),
@@ -171,12 +197,29 @@ class AgentSupervisor:
 
     async def _check_learner(self, now: datetime) -> AgentHealth:
         async with get_session() as session:
-            last = (
-                await session.execute(select(func.max(LearningLog.created_at)))
+            last_log = (
+                await session.execute(
+                    select(LearningLog).order_by(LearningLog.created_at.desc()).limit(1)
+                )
             ).scalar_one_or_none()
+
+        if last_log is None:
+            return AgentHealth(name="learner", status="unknown", detail="esperando primer trade cerrado")
+
+        # insufficient_data = estado de espera, no error → "unknown" en lugar de "degraded"
+        if last_log.notes == "insufficient_data":
+            return AgentHealth(
+                name="learner",
+                status="unknown",
+                last_activity=last_log.created_at,
+                detail=f"esperando más trades cerrados ({last_log.tokens_evaluated} evaluados — mínimo requerido no alcanzado)",
+            )
+
+        # Learner corre una vez al día → ventana de 25h para "sano"
         return _make_health(
-            "learner", last, now,
-            degraded_window=timedelta(hours=26),
+            "learner", last_log.created_at, now,
+            healthy_window=timedelta(hours=25),
+            degraded_window=timedelta(hours=50),
             no_data_detail="esperando primer trade cerrado",
         )
 

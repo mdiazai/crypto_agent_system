@@ -39,6 +39,8 @@
     .badge-live { background: #10b98122; color: #34d399; border: 1px solid #10b98144; }
     .blink { animation: blink 1s step-start infinite; }
     @keyframes blink { 50% { opacity: 0; } }
+    .score-tooltip { display: none; position: absolute; bottom: 100%; left: 0; z-index: 50; min-width: 200px; margin-bottom: 4px; }
+    .score-cell:hover .score-tooltip { display: block; }
   </style>
 </head>
 <body>
@@ -199,19 +201,67 @@
                     x-text="t.pattern_type === 'long_pump' ? '🚀 Long Pump' : t.pattern_type === 'classic' ? '🎯 Classic' : t.pattern_type">
                   </span>
                 </td>
-                <td class="px-4 py-3">
+                <td class="px-4 py-3 score-cell relative" style="cursor: help;">
                   <div class="flex items-center gap-2">
                     <div class="flex-1 bg-dark-700 rounded-full h-2 overflow-hidden">
                       <div class="h-2 rounded-full score-bar"
                         :style="'width: ' + (t.detection_score || 0) + '%'"
-                        :class="(t.detection_score||0) >= 80 ? 'bg-red-500' : (t.detection_score||0) >= 62 ? 'bg-amber-500' : 'bg-emerald-500'">
+                        :class="(t.detection_score||0) >= 80 ? 'bg-red-500' : (t.detection_score||0) >= 60 ? 'bg-amber-500' : 'bg-emerald-500'">
                       </div>
                     </div>
                     <span class="text-xs font-mono font-bold w-8 text-right"
-                      :class="(t.detection_score||0) >= 80 ? 'text-red-400' : (t.detection_score||0) >= 62 ? 'text-amber-400' : 'text-emerald-400'"
+                      :class="(t.detection_score||0) >= 80 ? 'text-red-400' : (t.detection_score||0) >= 60 ? 'text-amber-400' : 'text-emerald-400'"
                       x-text="(t.detection_score || 0).toFixed(0)">
                     </span>
                   </div>
+                  <!-- Tooltip breakdown -->
+                  <template x-if="t.score_breakdown">
+                    <div class="score-tooltip card border border-dark-600 p-2 text-xs shadow-xl">
+                      <div class="text-slate-400 font-semibold mb-1.5 uppercase tracking-wider text-[10px]"
+                        x-text="t.score_breakdown.dominant === 'long_pump' ? '🚀 Long Pump' : '🎯 Classic Squeeze'">
+                      </div>
+                      <template x-if="t.score_breakdown.dominant === 'long_pump'">
+                        <div class="space-y-0.5">
+                          <div class="flex justify-between gap-4">
+                            <span class="text-slate-500">Inflow</span>
+                            <span class="font-mono" :class="t.score_breakdown.lp_inflow > 0 ? 'text-emerald-400' : 'text-slate-600'" x-text="(t.score_breakdown.lp_inflow||0).toFixed(1) + ' pts'"></span>
+                          </div>
+                          <div class="flex justify-between gap-4">
+                            <span class="text-slate-500">On-chain</span>
+                            <span class="font-mono" :class="t.score_breakdown.lp_holder > 0 ? 'text-emerald-400' : 'text-slate-600'" x-text="(t.score_breakdown.lp_holder||0).toFixed(1) + ' pts'"></span>
+                          </div>
+                          <div class="flex justify-between gap-4">
+                            <span class="text-slate-500">Precio</span>
+                            <span class="font-mono" :class="t.score_breakdown.lp_price > 0 ? 'text-emerald-400' : 'text-slate-600'" x-text="(t.score_breakdown.lp_price||0).toFixed(1) + ' pts'"></span>
+                          </div>
+                          <div class="flex justify-between gap-4">
+                            <span class="text-slate-500">Funding</span>
+                            <span class="font-mono" :class="t.score_breakdown.lp_funding > 0 ? 'text-emerald-400' : 'text-slate-600'" x-text="(t.score_breakdown.lp_funding||0).toFixed(1) + ' pts'"></span>
+                          </div>
+                        </div>
+                      </template>
+                      <template x-if="t.score_breakdown.dominant === 'classic'">
+                        <div class="space-y-0.5">
+                          <div class="flex justify-between gap-4">
+                            <span class="text-slate-500">Short Int</span>
+                            <span class="font-mono" :class="t.score_breakdown.cl_short > 0 ? 'text-emerald-400' : 'text-slate-600'" x-text="(t.score_breakdown.cl_short||0).toFixed(1) + ' pts'"></span>
+                          </div>
+                          <div class="flex justify-between gap-4">
+                            <span class="text-slate-500">Funding</span>
+                            <span class="font-mono" :class="t.score_breakdown.cl_funding > 0 ? 'text-emerald-400' : 'text-slate-600'" x-text="(t.score_breakdown.cl_funding||0).toFixed(1) + ' pts'"></span>
+                          </div>
+                          <div class="flex justify-between gap-4">
+                            <span class="text-slate-500">Inflow</span>
+                            <span class="font-mono" :class="t.score_breakdown.cl_inflow > 0 ? 'text-emerald-400' : 'text-slate-600'" x-text="(t.score_breakdown.cl_inflow||0).toFixed(1) + ' pts'"></span>
+                          </div>
+                          <div class="flex justify-between gap-4">
+                            <span class="text-slate-500">Holders</span>
+                            <span class="font-mono" :class="t.score_breakdown.cl_holder > 0 ? 'text-emerald-400' : 'text-slate-600'" x-text="(t.score_breakdown.cl_holder||0).toFixed(1) + ' pts'"></span>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
                 </td>
                 <td class="px-4 py-3 text-right font-mono text-xs text-slate-300"
                   x-text="t.inflow_usd ? '$' + fmtNum(t.inflow_usd) : '—'"></td>
@@ -397,7 +447,8 @@
               <span class="text-xs px-2 py-0.5 rounded-full font-medium"
                 :class="{
                   'bg-emerald-900/30 text-emerald-400 border border-emerald-800/40': agent.status === 'healthy',
-                  'bg-red-900/30 text-red-400 border border-red-800/40': agent.status === 'error' || agent.status === 'dead',
+                  'bg-amber-900/30 text-amber-400 border border-amber-800/40': agent.status === 'degraded',
+                  'bg-red-900/30 text-red-400 border border-red-800/40': agent.status === 'error' || agent.status === 'dead' || agent.status === 'unhealthy',
                   'bg-slate-800 text-slate-500 border border-slate-700': agent.status === 'unknown'
                 }"
                 x-text="agent.status">
@@ -410,6 +461,31 @@
               <div x-show="agent.detail" class="text-slate-600" x-text="agent.detail"></div>
               <div x-show="agent.name === 'monitor'" class="text-slate-500">
                 Tokens monitoreados: <span class="text-slate-300 font-mono" x-text="tokens.length"></span>
+              </div>
+              <div x-show="agent.name === 'detector'" class="text-slate-500">
+                Tokens evaluados: <span class="text-slate-300 font-mono" x-text="tokens.filter(t => t.detection_score != null).length"></span>
+                · Top score: <span class="font-mono font-bold"
+                  :class="topScore >= (config?.alert_threshold || 60) ? 'text-emerald-400' : topScore >= 50 ? 'text-amber-400' : 'text-red-400'"
+                  x-text="topScore.toFixed(1) + ' pts'"></span>
+              </div>
+              <div x-show="agent.name === 'scorer'" class="text-slate-500">
+                Score más alto: <span class="font-mono font-bold"
+                  :class="topScore >= (config?.alert_threshold || 60) ? 'text-emerald-400' : 'text-slate-400'"
+                  x-text="topScore.toFixed(1) + ' pts (umbral: ' + (config?.alert_threshold || 60) + ')'"></span>
+                <span x-show="agent.status === 'degraded'" class="block text-amber-500/80 text-xs mt-0.5">
+                  ⚠ sin nuevas señales — tokens activos en ventana de deduplicación (2h)
+                </span>
+              </div>
+              <div x-show="agent.name === 'executor'" class="mt-2">
+                <button
+                  x-show="agent.detail && agent.detail.includes('posición')"
+                  @click="activeTab = 'portfolio'"
+                  class="text-xs bg-sky-900/20 border border-sky-800/40 text-sky-400 px-3 py-1 rounded-lg hover:bg-sky-900/40 transition-colors w-full text-left">
+                  📊 Ver posiciones en Portfolio →
+                </button>
+                <span x-show="agent.status === 'degraded' && !(agent.detail && agent.detail.includes('posición'))" class="text-amber-700 text-xs">
+                  Sin nuevas señales desde último trade — normal si no hay pumps activos
+                </span>
               </div>
               <div x-show="agent.restart_count > 0" class="text-amber-600">
                 Reinicios: <span x-text="agent.restart_count"></span>
@@ -440,6 +516,10 @@
           <button @click="triggerLearner()"
             class="text-sm bg-purple-900/30 border border-purple-800/40 text-purple-400 px-4 py-2 rounded-lg hover:bg-purple-900/50 transition-colors">
             🧠 Correr Learner
+          </button>
+          <button @click="triggerExecutor()"
+            class="text-sm bg-emerald-900/30 border border-emerald-800/40 text-emerald-400 px-4 py-2 rounded-lg hover:bg-emerald-900/50 transition-colors">
+            ⚡ Correr Executor
           </button>
         </div>
         <div x-show="actionMsg" class="mt-3 text-xs text-emerald-400 bg-emerald-900/20 border border-emerald-800/40 rounded px-3 py-2"
@@ -522,6 +602,10 @@ function app() {
     },
     get alertTokens() {
       return this.tokens.filter(t => t.alert_sent);
+    },
+    get topScore() {
+      const scores = this.tokens.map(t => t.detection_score || 0);
+      return scores.length ? Math.max(...scores) : 0;
     },
 
     async init() {
@@ -665,6 +749,12 @@ function app() {
       await this.api('/agents/learner/evaluate', { method: 'POST' });
       this.actionMsg = '✓ Learner encolado — ejecutará en segundos';
       this.showToast('🧠 Learner iniciado');
+      setTimeout(() => this.actionMsg = '', 4000);
+    },
+    async triggerExecutor() {
+      await this.api('/agents/executor/run', { method: 'POST' });
+      this.actionMsg = '✓ Executor: ciclo de monitoreo de posiciones forzado';
+      this.showToast('⚡ Executor iniciado');
       setTimeout(() => this.actionMsg = '', 4000);
     },
 

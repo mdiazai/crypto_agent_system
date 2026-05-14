@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime, timezone
 import structlog
 from prometheus_client import Counter, Histogram, Gauge, start_http_server
@@ -77,6 +78,17 @@ class DetectorAgent:
                 pattern = PatternType(scored.dominant_pattern)
             except (ValueError, KeyError):
                 pattern = PatternType.unknown
+            breakdown_json = json.dumps({
+                "dominant": scored.dominant_pattern,
+                "lp_inflow": scored.long_pump.inflow_signal,
+                "lp_holder": scored.long_pump.holder_signal,
+                "lp_price": scored.long_pump.price_stability_signal,
+                "lp_funding": scored.long_pump.funding_rate_signal,
+                "cl_short": scored.classic_squeeze.short_interest_signal,
+                "cl_funding": scored.classic_squeeze.funding_rate_signal,
+                "cl_inflow": scored.classic_squeeze.inflow_signal,
+                "cl_holder": scored.classic_squeeze.holder_signal,
+            })
             async with get_session() as session:
                 await session.execute(
                     update(TokenCandidate)
@@ -87,6 +99,7 @@ class DetectorAgent:
                         last_checked=datetime.now(timezone.utc),
                         inflow_usd=scored.inflow_4h_usd,
                         volume_24h_usd=scored.volume_24h_usd,
+                        score_breakdown=breakdown_json,
                     )
                 )
         except Exception as e:

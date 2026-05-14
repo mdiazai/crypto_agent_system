@@ -43,21 +43,25 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - Discovery usa tickers MEXC/Bitget como fallback cuando CoinGecko rate-limita
 
 ## Estado operativo (2026-05-13)
-- Pipeline completo funcionando: Discovery → Monitor(534 tokens/ciclo) → Detector → Executor
-- 4 trades paper abiertos: ACN x2, LAB x2 (entrada ~00:37 UTC del 2026-05-13)
-- Top score actual: UMXM 54, GOLD(PAXG) 50, EUR 48 — todos bajo umbral de 62
+- Pipeline completo funcionando: Discovery → Monitor(521 tokens/ciclo) → Detector → Executor
+- 5 trades paper abiertos: ACN x2, LAB x2, EUR x1 (entrada 00:37 y 11:44 UTC)
+- EUR disparó con score 67.5 tras bajar INFLOW_THRESHOLD_USD a $200k
 - Discovery corre al startup y cada día a las 02:00 UTC (APScheduler cron)
 - Alembic stamped en 0002 (columna volume_24h_usd ya existía en DB)
+- Executor heartbeat: escribe `executor:heartbeat` en Redis cada 30s (TTL 120s)
 
 ## Próximo paso
-- Esperar cierre de los 4 trades paper (LAB, ACN) para activar Learner
+- Esperar cierre de los 5 trades paper (ACN x2, LAB x2, EUR x1) para activar Learner
 - Revisar aprendizaje del Learner tras primer ciclo de trades
-- Monitorear si algún token supera score 62 en próximos ciclos
-- Performance UI: http://localhost:8001/static/performance.html (link en nav del dashboard)
-- On-chain: Coinglass (sin key), Etherscan (key gratuita), CryptoQuant (key gratuita)
-- ALERT_THRESHOLD=62 (bajado de 70; máx teórico sin Glassnode = 93 pts)
+- Coinglass API pública v2 DEPRECADA — devuelve HTTP 500 para todos los endpoints
+- CCXT solo da funding/OI para contratos SWAP, no para spot tokens watchlist
+- Sin señales de derivados: máx score teórico real = 67.5 pts (40 inflow + 20 precio + 7.5 funding)
+- INFLOW_THRESHOLD_USD=200000 (bajado de 500000 para calibrar a tamaño real de altcoins)
+- ALERT_THRESHOLD=60 (bajado de 62; máx alcanzable: ~67.5 sin Coinglass)
+- Telegram activo: token renovado en BotFather, mensaje de prueba enviado ✅ (@mi_crypto_agent_bot)
+- TELEGRAM_BOT_TOKEN actualizado en docker-compose.yml (override) — actualizar .env manualmente
 
-## Fixes sesión 2026-05-13
+## Fixes sesión 2026-05-13 (turno 1)
 - Discovery: ahora suscribe a channel:control:discovery:run → botón "Forzar scan" funciona
 - Orchestrator health: Detector usa last_checked (no Alert.sent_at) → muestra healthy correctamente
 - Orchestrator health: Discovery usa ventana 25h (era 10min → always unhealthy)
@@ -65,6 +69,30 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - Dashboard: auto-refresh 30s → 60s; botón "Forzar scan ahora" en card de Discovery
 - Dashboard: counter de tokens monitoreados en card de Monitor
 - Alembic 0002: reescrito con ADD COLUMN IF NOT EXISTS para evitar crash en restart
+
+## Fixes sesión 2026-05-13 (turno 2 — alertas y breakdown)
+- CAUSA RAÍZ "Sin alerta": Telegram devuelve "Chat not found" → scorer abortaba antes de guardar en DB
+- scorer_agent.py: desacoplado Telegram del guardado en DB — ahora siempre guarda Alert + marca alert_sent=True aunque Telegram falle
+- scorer_agent.py: _save_alert ahora hace UPDATE token_candidates SET alert_sent=True (bug: antes nunca lo hacía)
+- detector_agent.py: guarda score_breakdown JSON en DB al actualizar cada score
+- shared/models/token_candidate.py: nuevo campo score_breakdown TEXT
+- alembic 0003: ADD COLUMN IF NOT EXISTS score_breakdown TEXT
+- dashboard/schemas.py + tokens.py: expone score_breakdown como dict en API
+- dashboard/index.html: tooltip hover sobre score muestra breakdown por componente (Inflow/On-chain/Precio/Funding para LP; Short Int/Funding/Inflow/Holders para Classic)
+- docker-compose.yml: ALERT_THRESHOLD=60 y TELEGRAM_BOT_TOKEN nuevo explícitos como overrides
+
+## Fixes sesión 2026-05-14 (turno 3 — Scorer/Learner health + mejoras dashboard)
+- PROBLEMA 1: Scorer degraded — causa: TELEGRAM_BOT_TOKEN revocado en BotFather → "Not Found"
+  - Nuevo token configurado en docker-compose.yml; mensaje de prueba ✅ (message_id=2)
+  - scorer_agent.py: escribe scorer:heartbeat en Redis (TTL 12min) en cada token ≥ umbral procesado
+  - orchestrator: _check_scorer lee heartbeat primero, fallback a Alert.sent_at
+- PROBLEMA 2: Learner degraded — no era error, era estado de espera (insufficient_data)
+  - orchestrator: _check_learner devuelve status="unknown" con mensaje descriptivo cuando notes='insufficient_data'
+  - Learner corre una vez al día (03:00 UTC) — ventana healthy ampliada a 25h para futuros runs con datos suficientes
+- Dashboard mejora 1: tarjeta Executor muestra botón "Ver posiciones en Portfolio →" que navega al tab portfolio
+- Dashboard mejora 2: tarjeta Scorer muestra "⚠ sin nuevas señales — tokens en deduplicación (2h)" cuando degraded
+- Dashboard mejora 3: top score Detector en verde si ≥ umbral (config.alert_threshold), amarillo 50-59, rojo <50
+- Dashboard: badge "degraded" ahora en amber (antes sin estilo), "unhealthy" en rojo
 ## Instrucción de mantenimiento
 Al finalizar cada sesión de trabajo, actualizar este archivo 
 con los cambios realizados y el próximo paso pendiente. Al finalizar cada sesión actualiza el archivo bitacora.md con lo hecho nuevo sobre el proyecto en esta.

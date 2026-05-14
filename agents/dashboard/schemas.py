@@ -31,6 +31,7 @@ class TokenCandidateResponse(BaseModel):
     added_at: datetime
     last_checked: Optional[datetime]
     notes: Optional[str]
+    score_breakdown: Optional[dict] = None
 
 
 # ── Trades ────────────────────────────────────────────────────────────────────

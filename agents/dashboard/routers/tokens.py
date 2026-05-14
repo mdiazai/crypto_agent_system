@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, desc
 from typing import Optional
@@ -51,6 +52,7 @@ async def list_tokens(
             added_at=r.added_at,
             last_checked=r.last_checked,
             notes=r.notes,
+            score_breakdown=json.loads(r.score_breakdown) if r.score_breakdown else None,
         )
         for r in rows
     ]

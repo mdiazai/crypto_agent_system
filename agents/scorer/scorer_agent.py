@@ -3,10 +3,10 @@ from datetime import datetime, timezone, timedelta
 
 import structlog
 from prometheus_client import Counter, Gauge, start_http_server
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from shared.config import settings
-from shared.models import Alert, get_session
+from shared.models import Alert, TokenCandidate, get_session
 from shared.redis_bus import bus, Channel
 from agents.detector.schemas import ScoredToken
 
@@ -54,6 +54,14 @@ class ScorerAgent:
         if not scored.above_alert_threshold:
             return
 
+        # Heartbeat: scorer está activo procesando señales (TTL 12 min = 2 ciclos de monitor)
+        if bus._client:
+            await bus._client.setex(
+                "scorer:heartbeat",
+                720,
+                f"{scored.symbol}:{scored.composite_score:.1f}",
+            )
+
         PENDING_ALERTS.inc()
 
         # Deduplicación vía PostgreSQL
@@ -63,7 +71,7 @@ class ScorerAgent:
             PENDING_ALERTS.dec()
             return
 
-        # Formatear y enviar
+        # Intentar envío Telegram (best-effort — no bloquea el guardado en DB)
         message = format_alert(scored)
         message_id = await self._telegram.send_alert(
             text=message,
@@ -73,23 +81,20 @@ class ScorerAgent:
 
         if message_id is None:
             ALERTS_FAILED.inc()
-            PENDING_ALERTS.dec()
-            log.error("scorer_agent.send_failed", symbol=scored.symbol)
-            return
+            log.error("scorer_agent.telegram_failed", symbol=scored.symbol)
+        else:
+            ALERTS_SENT.labels(pattern=scored.dominant_pattern).inc()
+            log.info(
+                "scorer_agent.alert_sent",
+                symbol=scored.symbol,
+                score=scored.composite_score,
+                pattern=scored.dominant_pattern,
+                message_id=message_id,
+            )
 
-        # Persistir en DB
+        # Siempre persistir en DB y marcar alert_sent aunque Telegram falle
         await self._save_alert(scored, message_id)
-
-        ALERTS_SENT.labels(pattern=scored.dominant_pattern).inc()
         PENDING_ALERTS.dec()
-
-        log.info(
-            "scorer_agent.alert_sent",
-            symbol=scored.symbol,
-            score=scored.composite_score,
-            pattern=scored.dominant_pattern,
-            message_id=message_id,
-        )
 
     async def _is_duplicate(self, symbol: str) -> bool:
         """Retorna True si ya se envió una alerta de este símbolo en las últimas 2 horas."""
@@ -105,7 +110,7 @@ class ScorerAgent:
             ).scalar_one_or_none()
         return row is not None
 
-    async def _save_alert(self, scored: ScoredToken, message_id: int) -> None:
+    async def _save_alert(self, scored: ScoredToken, message_id: int | None) -> None:
         async with get_session() as session:
             session.add(Alert(
                 token_symbol=scored.symbol,
@@ -114,6 +119,11 @@ class ScorerAgent:
                 sent_at=datetime.now(timezone.utc),
                 telegram_message_id=message_id,
             ))
+            await session.execute(
+                update(TokenCandidate)
+                .where(TokenCandidate.symbol == scored.symbol)
+                .values(alert_sent=True)
+            )
 
     async def send_system_alert(self, title: str, body: str) -> None:
         """Para alertas del sistema: circuit breaker, errores críticos, etc."""

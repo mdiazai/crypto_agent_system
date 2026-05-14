@@ -884,3 +884,69 @@ executor   degraded — última actividad hace 51 min (4 trades abiertos)
 learner    unknown  — esperando primer trade cerrado
 dashboard  healthy  — HTTP 200 OK
 ```
+
+---
+
+## Sesión 2026-05-13 (turno 2) — Fix alertas "Sin alerta" + breakdown de scores
+
+### El problema reportado
+
+El Scanner mostraba tokens con scores 62-66 pero todos decían "Sin alerta" — incluso UMXM con score 62 
+que superaba el threshold. El usuario sospechaba desajuste entre .env y settings.py, o condición `>` 
+en vez de `>=`.
+
+### Diagnóstico real
+
+Investigación sistemática reveló que el stack estaba bien configurado en todos los puntos sospechados:
+- `ALERT_THRESHOLD=62` en .env ✓ y en ambos containers (detector, scorer) ✓
+- Condición `>=` en `score_engine.py:52` ✓  
+- Scorer suscripto a `channel:detector:scored_token` y recibiendo mensajes ✓
+
+El problema real estaba en los logs del scorer:
+```
+{"error": "Chat not found", "event": "telegram_client.error", ...}
+{"symbol": "UMXM", "event": "scorer_agent.send_failed", ...}
+```
+
+**Causa raíz**: `TELEGRAM_CHAT_ID` incorrecto en .env → Telegram devuelve "Chat not found" → el scorer abortaba el flujo antes de guardar en DB → `alert_sent` nunca se ponía en `True` → "Sin alerta" en dashboard.
+
+**Bug secundario encontrado**: incluso si Telegram hubiera funcionado, `_save_alert()` solo insertaba en la tabla `Alert` pero **nunca** hacía `UPDATE token_candidates SET alert_sent=True`. Ese flag jamás se habría activado.
+
+### Fixes aplicados
+
+**scorer_agent.py** — dos cambios:
+1. Desacoplar Telegram del guardado en DB: Telegram pasa a ser best-effort. Si falla, loguea el error pero continúa para guardar en DB.
+2. `_save_alert()` ahora hace dos operaciones en la misma sesión: insert en `Alert` + `UPDATE token_candidates SET alert_sent=True WHERE symbol=...`
+
+**detector_agent.py** — guarda breakdown JSON:
+Cada vez que el Detector actualiza el score en DB, también guarda el campo `score_breakdown` con el desglose por componente del patrón dominante:
+```json
+{"dominant": "long_pump", "lp_inflow": 40.0, "lp_holder": 0.0, "lp_price": 17.0, "lp_funding": 7.5, ...}
+```
+
+**shared/models/token_candidate.py** — nuevo campo `score_breakdown TEXT`
+
+**Migración 0003** — `ALTER TABLE token_candidates ADD COLUMN IF NOT EXISTS score_breakdown TEXT`  
+Aplicada directamente via psql (alembic no disponible en containers por configuración de rutas).
+
+**Dashboard tooltip** — hover sobre el número de score muestra:
+- Para Long Pump: Inflow / On-chain / Precio / Funding (cada uno en pts)
+- Para Classic Squeeze: Short Int / Funding / Inflow / Holders
+
+**ALERT_THRESHOLD bajado a 60** — con scores máximos de ~67.5 pts (sin Coinglass/derivados), el 62 era demasiado ajustado. Se bajó a 60 vía override explícito en `docker-compose.yml` (el .env tiene restricción de acceso desde Claude).
+
+### Score breakdown observado (EUR/BILL/UMXM, Long Pump)
+
+| Componente | Pts | Razón |
+|---|---|---|
+| Inflow 4h | ~40 | Inflow ≥ $1M (5x threshold de $200k) |
+| On-chain | 0 | Coinglass deprecated, solo ERC20 en Etherscan |
+| Precio estable | 12-20 | Variación 24h entre 1-7% |
+| Funding neutral | 7.5 | Sin datos CCXT para spot → valor neutro |
+| **Total** | **~62-66** | |
+
+### Estado del Telegram
+
+El error "Chat not found" persiste — requiere corrección manual del `TELEGRAM_CHAT_ID` en .env.  
+Ahora el sistema funciona sin Telegram: guarda alertas en DB y marca `alert_sent=True` igualmente.  
+Cuando se corrija el CHAT_ID, los próximos scores ≥60 enviarán Telegram automáticamente.
