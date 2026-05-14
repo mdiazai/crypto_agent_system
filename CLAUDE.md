@@ -49,18 +49,22 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - Máx score teórico real ≈ 67.5 pts (sin Coinglass/derivados)
 
 ## Estado operativo (2026-05-14)
-- Pipeline: Discovery → Monitor (~247 tokens/ciclo) → Detector → Scorer → Executor
-- Telegram activo y verificado (message_id=2 enviado en prueba)
+- Pipeline: Discovery → Monitor (~532 tokens/ciclo, ~534 snapshots, ~113s) → Detector → Scorer → Executor
+- 4 trades paper abiertos: ACN ×2, LAB ×2 (ejecutados ~00:37 UTC del 2026-05-13)
+- Telegram: renovado en BotFather; "Chat not found" resuelto — sistema guarda alertas en DB aunque Telegram falle (best-effort)
 - 160 tokens de gran cap removidos del watchlist (LTC, XAUT, BNB, XRP, DOGE, SHIB...)
 - Watchlist filtrada: $2M–$100M market cap, sin top-100 conocidos
 - Alembic en 0004 (columnas score_breakdown + contract_address)
+- Migración 0002 reescrita con `ADD COLUMN IF NOT EXISTS` (antes crasheaba al reiniciar si la columna ya existía)
 - Executor heartbeat: Redis `executor:heartbeat` cada 30s (TTL 120s)
 - Scorer heartbeat: Redis `scorer:heartbeat` cada vez que procesa token ≥ umbral (TTL 12min)
-- Discovery corre al startup y a las 02:00 UTC (APScheduler)
+- Discovery corre al startup y a las 02:00 UTC (APScheduler); trigger manual vía Dashboard ("Forzar scan ahora") → publica en `channel:control:discovery:run`
+- Orchestrator health checks corregidos: Discovery ventana 25h (no 10min), Detector usa `MAX(TokenCandidate.last_checked)` en lugar de `Alert.sent_at`
+- Dashboard: tooltip al hover sobre score muestra breakdown por componente (Inflow / On-chain / Precio / Funding)
 
 ## Próximos pasos
-- Esperar cierre de trades paper para activar ciclo completo del Learner
-- Actualizar TELEGRAM_BOT_TOKEN y ALERT_THRESHOLD en .env (actualmente solo en docker-compose)
+- Esperar cierre de trades paper (ACN, LAB) para activar ciclo completo del Learner
+- Actualizar TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID y ALERT_THRESHOLD en .env (actualmente solo en docker-compose)
 - Holders ERC-20: aparecerán en alertas tras el próximo Discovery (02:00 UTC) para tokens con contrato Ethereum
 - Coinglass API pública v2 DEPRECADA — sin señales de derivados hasta nueva fuente
 - CCXT da funding/OI solo para contratos SWAP, no spot
@@ -70,6 +74,7 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - Sin derivados, máx score alcanzable ≈ 67.5 pts (inflow 40 + precio 20 + funding neutro 7.5)
 - Etherscan solo cubre tokens ERC-20 en Ethereum; BEP-20/Solana/etc → holders N/D
 - CoinGecko free tier se rate-limita (429) en discovery → algunas páginas se pierden
+- Scorer: Telegram es best-effort desde sesión 2026-05-13; si falla, loguea y continúa guardando en DB + marcando `alert_sent=True`
 
 ## Schema DB (token_candidates)
 Columnas relevantes añadidas post-init:

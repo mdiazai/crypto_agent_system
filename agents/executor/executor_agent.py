@@ -59,6 +59,7 @@ class ExecutorAgent:
         )
 
         await bus.subscribe(Channel.DETECTOR_SCORED_TOKEN, self._handle_signal)
+        await bus.subscribe("channel:control:executor:run", self._handle_manual_trigger)
         await bus.start_listening()
 
         # Lanzar loop de monitoreo de posiciones en segundo plano
@@ -71,6 +72,14 @@ class ExecutorAgent:
             monitor_task.cancel()
             await self._client.close()
             await bus.disconnect()
+
+    async def _handle_manual_trigger(self, payload: dict) -> None:
+        log.info("executor_agent.manual_trigger", source=payload.get("source", "unknown"))
+        for pos in self._tracker.all_positions():
+            try:
+                await self._check_position(pos)
+            except Exception:
+                log.exception("executor_agent.monitor_error", symbol=pos.symbol)
 
     # ── Señal de entrada ──────────────────────────────────────────────────────
 
@@ -187,6 +196,11 @@ class ExecutorAgent:
         while True:
             await asyncio.sleep(_MONITOR_INTERVAL)
             positions = self._tracker.all_positions()
+
+            # Heartbeat para que el Orchestrator detecte actividad aunque no haya trades
+            if bus._client:
+                await bus._client.setex("executor:heartbeat", 120, str(len(positions)))
+
             if not positions:
                 continue
 
