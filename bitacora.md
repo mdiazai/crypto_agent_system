@@ -950,3 +950,45 @@ Aplicada directamente via psql (alembic no disponible en containers por configur
 El error "Chat not found" persiste — requiere corrección manual del `TELEGRAM_CHAT_ID` en .env.  
 Ahora el sistema funciona sin Telegram: guarda alertas en DB y marca `alert_sent=True` igualmente.  
 Cuando se corrija el CHAT_ID, los próximos scores ≥60 enviarán Telegram automáticamente.
+
+---
+
+## Sesión 2026-05-14 — Sincronización CLAUDE.md + endpoint Executor manual
+
+### Contexto
+
+CLAUDE.md estaba desactualizado respecto a los cambios de las dos sesiones del 2026-05-13
+documentadas en bitácora. Se realizó sincronización completa y se detectaron dos archivos
+con cambios no comiteados (`agents/dashboard/routers/agents.py` y `agents/executor/executor_agent.py`).
+
+### Cambios en CLAUDE.md
+
+Correcciones y adiciones al estado operativo:
+
+- **Conteo de tokens corregido**: `~247 tokens/ciclo` → `~532 tokens/ciclo, ~534 snapshots, ~113s`
+- **4 trades paper** documentados: ACN ×2, LAB ×2 (ejecutados ~00:37 UTC del 2026-05-13)
+- **Telegram best-effort** documentado: sistema guarda alertas en DB aunque falle Telegram
+- **Discovery manual trigger** documentado: Dashboard → "Forzar scan ahora" → `channel:control:discovery:run`
+- **Orchestrator health checks** documentados: ventana 25h para Discovery, `MAX(TokenCandidate.last_checked)` para Detector
+- **Dashboard tooltip** documentado: hover sobre score muestra breakdown por componente
+- **Migración 0002** documentada: reescrita con `ADD COLUMN IF NOT EXISTS`
+- **Próximos pasos**: añadido `TELEGRAM_CHAT_ID` a la lista de variables pendientes en .env
+
+### Cambios en agentes (no comiteados previos, incluidos en este commit)
+
+**`agents/dashboard/routers/agents.py`**
+- Nuevo endpoint `POST /agents/executor/run` → publica en `channel:control:executor:run`
+- Permite disparar chequeo de posiciones del Executor desde el Dashboard
+
+**`agents/executor/executor_agent.py`**
+- Suscripción a `channel:control:executor:run` → `_handle_manual_trigger()`
+- `_handle_manual_trigger()`: itera sobre todas las posiciones abiertas y llama `_check_position()`
+- Heartbeat en el loop de monitoreo: `setex("executor:heartbeat", 120, len(positions))` — el Orchestrator detecta actividad aunque no haya trades nuevos
+
+### Commit
+
+```
+1a87e2e docs: sincroniza CLAUDE.md con sesiones 2026-05-13 de bitácora
+```
+
+Pushed a `origin/main`.
