@@ -48,6 +48,7 @@ class TokenCandidate(Base):
     volume_24h_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     alert_sent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     score_breakdown: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    contract_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:

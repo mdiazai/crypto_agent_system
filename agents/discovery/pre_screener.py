@@ -4,15 +4,28 @@ from .schemas import TokenData
 log = structlog.get_logger(__name__)
 
 # Configurable defaults — zona de pumps óptima según el blueprint
-MARKET_CAP_MIN_USD = 5_000_000
-MARKET_CAP_MAX_USD = 500_000_000
+MARKET_CAP_MIN_USD = 2_000_000    # $2M mínimo
+MARKET_CAP_MAX_USD = 100_000_000  # $100M máximo — criminal pumps ocurren en small caps
 VOLUME_TO_MCAP_RATIO_MIN = 0.03   # al menos 3% de mcap en volumen diario
 TOKEN_AGE_MAX_DAYS = 730          # tokens con menos de 2 años (más volátiles)
 PRICE_CHANGE_MAX_24H_PCT = 50     # evitar tokens ya en pump activo
 
 # Filtros por volumen cuando no hay datos de CoinGecko
-VOLUME_MIN_USD_FALLBACK = 100_000      # $100k mínimo diario (evita tokens muertos)
-VOLUME_MAX_USD_FALLBACK = 100_000_000  # $100M máximo (gigacaps quedan fuera)
+VOLUME_MIN_USD_FALLBACK = 100_000  # $100k mínimo diario (evita tokens muertos)
+VOLUME_MAX_USD_FALLBACK = 10_000_000  # $10M máximo — conservador sin datos de mcap
+
+# Tokens de gran capitalización conocidos — excluidos siempre, incluso en fallback mode
+LARGE_CAP_BLACKLIST: set[str] = {
+    # Top crypto por market cap
+    "BTC", "ETH", "BNB", "XRP", "SOL", "ADA", "DOGE", "AVAX",
+    "DOT", "MATIC", "LINK", "UNI", "LTC", "BCH", "ATOM", "XLM",
+    "ALGO", "VET", "FIL", "THETA", "ETC", "XMR", "HBAR", "NEAR",
+    "FTM", "SAND", "MANA", "AXS", "GALA", "ENJ",
+    # Activos de commodities tokenizados
+    "XAUT", "PAXG",
+    # Wrapped / staked
+    "WBTC", "STETH", "WETH", "CBBTC",
+}
 
 
 class PreScreener:
@@ -54,6 +67,10 @@ class PreScreener:
     def _reject_reason(self, t: TokenData) -> str | None:
         if t.symbol in self.blacklist:
             return "blacklist"
+
+        # Siempre excluir tokens de gran cap conocidos
+        if t.symbol in LARGE_CAP_BLACKLIST:
+            return "large_cap_known"
 
         # Modo CoinGecko: usar market cap y ratio de volumen
         if t.market_cap_usd is not None:

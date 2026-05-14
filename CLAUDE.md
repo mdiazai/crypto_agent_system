@@ -93,6 +93,21 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - Dashboard mejora 2: tarjeta Scorer muestra "⚠ sin nuevas señales — tokens en deduplicación (2h)" cuando degraded
 - Dashboard mejora 3: top score Detector en verde si ≥ umbral (config.alert_threshold), amarillo 50-59, rojo <50
 - Dashboard: badge "degraded" ahora en amber (antes sin estilo), "unhealthy" en rojo
+
+## Fixes sesión 2026-05-14 (turno 4 — filtros market cap + holders pipeline)
+- pre_screener: MARKET_CAP_MAX bajado de $500M a $100M; MIN de $5M a $2M
+- pre_screener: fallback volume max bajado de $100M a $10M (más conservador sin mcap)
+- pre_screener: LARGE_CAP_BLACKLIST hardcodeado — BTC/ETH/LTC/XAUT/PAXG/WBTC etc. bloqueados siempre
+- exchange_scanner: LARGE_CAP_SKIP filtra antes de llamar a CoinGecko
+- Resultado: 160 tokens grandes removidos del watchlist en primer run (LTC, XAUT, PAXG, BNB, XRP...)
+- holders pipeline completo: Discovery → contract_address → Monitor → DataFetcher → Etherscan
+- discovery/schemas.py: campo eth_contract en TokenData
+- exchange_scanner: método get_eth_contracts() llama /coins/{id} para tokens que pasan screener
+- alembic 0004: ADD COLUMN IF NOT EXISTS contract_address TEXT
+- monitor_agent: lee contract_address de DB y lo pasa a DataFetcher
+- data_fetcher: fetch_all(symbol, exchange, contract_address) — ya no hardcodea None
+- holders mostrará datos reales para tokens ERC-20 con contrato en Ethereum
+- CoinGecko free tier: sleep 2s entre llamadas de contratos (~30 req/min)
 ## Instrucción de mantenimiento
 Al finalizar cada sesión de trabajo, actualizar este archivo 
 con los cambios realizados y el próximo paso pendiente. Al finalizar cada sesión actualiza el archivo bitacora.md con lo hecho nuevo sobre el proyecto en esta.

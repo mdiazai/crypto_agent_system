@@ -104,15 +104,26 @@ class DiscoveryAgent:
         passing, rejected = self._screener.screen(all_tokens)
         passing_symbols = {t.symbol for t in passing}
 
+        # 4b. Enriquecer tokens passing con contract address de Ethereum
+        contracts = await self._scanner.get_eth_contracts(passing)
+        if contracts:
+            passing = [
+                t.model_copy(update={"eth_contract": contracts[t.symbol]})
+                if t.symbol in contracts else t
+                for t in passing
+            ]
+
         # 5. Upsert candidates into DB
         async with get_session() as session:
             for token in passing:
                 if token.symbol in existing_symbols:
-                    # Update last_checked on existing candidates
                     await session.execute(
                         update(TokenCandidate)
                         .where(TokenCandidate.symbol == token.symbol)
-                        .values(last_checked=datetime.now(timezone.utc))
+                        .values(
+                            last_checked=datetime.now(timezone.utc),
+                            contract_address=token.eth_contract,
+                        )
                     )
                 else:
                     # New candidate
@@ -122,10 +133,11 @@ class DiscoveryAgent:
                         status=TokenStatus.active,
                         pattern_type=PatternType.unknown,
                         inflow_usd=0.0,
+                        contract_address=token.eth_contract,
                         notes=f"mcap={token.market_cap_usd:.0f} vol_ratio={token.volume_to_mcap_ratio:.3f}"
                         if token.market_cap_usd and token.volume_to_mcap_ratio else None,
                     ))
-                    log.info("discovery_agent.new_candidate", symbol=token.symbol)
+                    log.info("discovery_agent.new_candidate", symbol=token.symbol, has_contract=bool(token.eth_contract))
 
             # 6. Mark tokens that no longer pass as removed
             to_remove = set(existing_symbols.keys()) - passing_symbols

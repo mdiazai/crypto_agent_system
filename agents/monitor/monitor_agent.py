@@ -72,12 +72,15 @@ class MonitorAgent:
         async with get_session() as session:
             rows = (
                 await session.execute(
-                    select(TokenCandidate.symbol, TokenCandidate.exchange)
+                    select(TokenCandidate.symbol, TokenCandidate.exchange, TokenCandidate.contract_address)
                     .where(TokenCandidate.status == TokenStatus.active)
                 )
             ).all()
 
-        active_tokens = [{"symbol": r.symbol, "exchange": r.exchange} for r in rows]
+        active_tokens = [
+            {"symbol": r.symbol, "exchange": r.exchange, "contract_address": r.contract_address}
+            for r in rows
+        ]
         result.tokens_checked = len(active_tokens)
         ACTIVE_TOKENS.set(len(active_tokens))
 
@@ -87,7 +90,7 @@ class MonitorAgent:
 
         # 2. Fetch en paralelo con semáforo interno en DataFetcher
         tasks = [
-            self._fetch_and_publish(t["symbol"], t["exchange"])
+            self._fetch_and_publish(t["symbol"], t["exchange"], t.get("contract_address"))
             for t in active_tokens
         ]
         outcomes = await asyncio.gather(*tasks, return_exceptions=True)
@@ -122,8 +125,8 @@ class MonitorAgent:
         )
         return result
 
-    async def _fetch_and_publish(self, symbol: str, exchange: str) -> bool:
-        snapshot: TokenSnapshot | None = await self._fetcher.fetch_all(symbol, exchange)
+    async def _fetch_and_publish(self, symbol: str, exchange: str, contract_address: str | None = None) -> bool:
+        snapshot: TokenSnapshot | None = await self._fetcher.fetch_all(symbol, exchange, contract_address)
         if snapshot is None:
             API_ERRORS.labels(reason="no_snapshot").inc()
             return False

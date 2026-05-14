@@ -101,7 +101,7 @@ class DataFetcher:
 
     _FALLBACK = {"mexc": "bitget", "bitget": "mexc"}
 
-    async def fetch_all(self, symbol: str, exchange_id: str) -> Optional[TokenSnapshot]:
+    async def fetch_all(self, symbol: str, exchange_id: str, contract_address: Optional[str] = None) -> Optional[TokenSnapshot]:
         pair = f"{symbol}/USDT"
         errors: list[str] = []
 
@@ -115,7 +115,7 @@ class DataFetcher:
             self._onchain.get_exchange_inflow(symbol),
             self._onchain.get_long_short_ratio(symbol),
             self._onchain.get_open_interest(symbol),
-            self._onchain.get_holder_count(None),   # sin contract address por ahora
+            self._onchain.get_holder_count(contract_address),
             return_exceptions=False,
         )
 

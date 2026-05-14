@@ -14,6 +14,15 @@ COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 COINGECKO_PRO_BASE = "https://pro-api.coingecko.com/api/v3"
 STABLECOIN_BLACKLIST = {"USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USDP", "USDD"}
 
+# Excluidos al cargar markets — evita llamadas a CoinGecko para tokens de gran cap
+LARGE_CAP_SKIP: set[str] = {
+    "BTC", "ETH", "BNB", "XRP", "SOL", "ADA", "DOGE", "AVAX",
+    "DOT", "MATIC", "LINK", "UNI", "LTC", "BCH", "ATOM", "XLM",
+    "ALGO", "VET", "FIL", "THETA", "ETC", "XMR", "HBAR", "NEAR",
+    "FTM", "SAND", "MANA", "AXS", "GALA", "ENJ",
+    "XAUT", "PAXG", "WBTC", "STETH", "WETH", "CBBTC",
+}
+
 
 class ExchangeScanner:
     def __init__(self) -> None:
@@ -37,6 +46,7 @@ class ExchangeScanner:
                 if m.get("quote") == "USDT"
                 and m.get("active", True)
                 and m.get("base") not in STABLECOIN_BLACKLIST
+                and m.get("base") not in LARGE_CAP_SKIP
             }
             log.info("exchange_scanner.symbols_loaded", exchange=exchange_id, count=len(symbols))
             return symbols
@@ -207,6 +217,43 @@ class ExchangeScanner:
             ))
 
         return tokens
+
+    async def get_eth_contracts(self, tokens: list) -> dict[str, str]:
+        """Llama /coins/{id} para cada token con coingecko_id y extrae el contrato Ethereum."""
+        result: dict[str, str] = {}
+        tokens_with_id = [t for t in tokens if t.coingecko_id]
+        if not tokens_with_id:
+            return result
+
+        log.info("exchange_scanner.fetching_contracts", count=len(tokens_with_id))
+        async with httpx.AsyncClient() as client:
+            for token in tokens_with_id:
+                try:
+                    resp = await client.get(
+                        f"{self._cg_base}/coins/{token.coingecko_id}",
+                        params={
+                            "localization": "false",
+                            "tickers": "false",
+                            "market_data": "false",
+                            "community_data": "false",
+                            "developer_data": "false",
+                        },
+                        headers=self._cg_headers,
+                        timeout=15,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        platforms = data.get("platforms", {})
+                        addr = platforms.get("ethereum") or platforms.get("binance-smart-chain")
+                        if addr:
+                            result[token.symbol] = addr
+                            log.debug("exchange_scanner.contract_found", symbol=token.symbol, addr=addr[:10] + "...")
+                    await asyncio.sleep(2.0)  # CoinGecko free tier: ~30 req/min
+                except Exception:
+                    log.debug("exchange_scanner.contract_fetch_failed", symbol=token.symbol)
+
+        log.info("exchange_scanner.contracts_fetched", found=len(result), queried=len(tokens_with_id))
+        return result
 
 
 def _calc_age_days(atl_date_str: Optional[str]) -> Optional[int]:
