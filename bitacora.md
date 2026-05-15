@@ -992,3 +992,88 @@ Correcciones y adiciones al estado operativo:
 ```
 
 Pushed a `origin/main`.
+
+---
+
+## Sesión 2026-05-15 — Fix métrica Anticipación Promedio (0.0h → minutos reales)
+
+### Problema reportado
+
+La pantalla de Performance mostraba **Anticipación Promedio = 0.0h**. El usuario sospechaba
+bug de cálculo o problema de timing.
+
+### Diagnóstico
+
+**Query ejecutada directamente en PostgreSQL:**
+
+```sql
+SELECT t.entry_time, a.sent_at,
+  EXTRACT(EPOCH FROM (t.entry_time - a.sent_at))/3600 as horas_anticipacion
+FROM trades t
+JOIN alerts a ON a.token_symbol = t.token_symbol
+ORDER BY t.entry_time DESC LIMIT 10;
+```
+
+Resultados representativos:
+
+| Token | Δ horas | Δ real |
+|---|---|---|
+| GOLD(PAXG) | 0.00588 | ~21s |
+| TON | 0.00073 | ~3s |
+| DOGE | 0.01036 | ~37s |
+| ADA | 0.00529 | ~19s |
+
+**Conclusiones:**
+
+1. **Fórmula correcta** — `entry_time - sent_at` es positivo (orden bien).
+2. **Problema de diseño + precisión**: el Executor suscribe al mismo canal Redis que el Scorer
+   (`channel:detector:scored_token`). Ambos reciben el evento en la misma pasada → el trade
+   abre 4–37 segundos después de la alerta. `round(0.004h, 2)` = `0.0h`.
+3. La métrica "anticipación en horas" **no tiene sentido** para auto-ejecución. Lo útil es:
+   ¿cuánto tiempo lleva el token siendo alertado antes de entrar? → comparar `entry_time`
+   con la **alerta más antigua** del token (no la más reciente).
+
+### Cambios implementados
+
+**`shared/models/trade.py`**
+- Nuevo campo `anticipation_minutes: Mapped[Optional[float]]` (FLOAT nullable)
+
+**`alembic/versions/0005_add_anticipation_minutes.py`** (nuevo)
+- `ALTER TABLE trades ADD COLUMN IF NOT EXISTS anticipation_minutes FLOAT`
+- `down_revision = "0004"` → cadena correcta
+
+**`agents/executor/executor_agent.py`**
+- Al abrir cada trade: consulta `MIN(Alert.sent_at)` para el token (alerta más antigua)
+- Calcula `anticipation_minutes = (entry_time − oldest_alert.sent_at).total_seconds() / 60`
+- Guarda el valor en el objeto `Trade` antes del `flush()`
+- Import añadido: `from shared.models import Alert, ...` + `from sqlalchemy import select`
+
+**`agents/dashboard/routers/performance.py`**
+- Lee `t.anticipation_minutes` del campo pre-calculado (sin JOIN en tiempo de consulta)
+- Retorna `avg_anticipation_minutes` en lugar de `avg_anticipation_hours`
+- Import de `Alert` eliminado (ya no se usa en este módulo)
+
+**`agents/dashboard/static/performance.html`**
+- Card "Anticipación Promedio": unidad `h` → `min`
+- Umbrales del semáforo: `(3h, 1.5h)` → `(30min, 5min)`
+- Descripción: "entre alerta Telegram y entrada" → "entre 1ª alerta del token y entrada al trade"
+- Veredicto: `≥ 3h` → `≥ 30 min`
+
+**Migración aplicada directamente via psql** (misma estrategia que 0003 y 0004):
+```sql
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS anticipation_minutes FLOAT;
+UPDATE alembic_version SET version_num = '0005';
+```
+
+### Nota sobre trades existentes
+
+Los 24 trades en DB tienen `anticipation_minutes = NULL` — la columna se añadió después.
+Los próximos trades calcularán el valor correctamente desde el momento de apertura.
+
+### Commit
+
+```
+1cfbb35 feat: anticipation_minutes en trades reemplaza avg_anticipation_hours
+```
+
+Pushed a `origin/main`.
