@@ -48,6 +48,7 @@ class Trade(Base):
     )
     score_at_entry: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_paper: Mapped[bool] = mapped_column(default=True, nullable=False)
+    anticipation_minutes: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     def __repr__(self) -> str:
         return f"<Trade {self.direction.value} {self.token_symbol} @ {self.entry_price} pnl={self.pnl_pct}%>"

@@ -162,17 +162,17 @@
         <div class="flex items-center justify-between mb-1">
           <p class="text-xs text-slate-500 uppercase tracking-wider">Anticipación Promedio</p>
           <span class="text-xs font-semibold px-2 py-0.5 rounded-full"
-            :class="trafficLight(data?.avg_anticipation_hours, 3, 1.5, false).badge"
-            x-text="trafficLight(data?.avg_anticipation_hours, 3, 1.5, false).label"></span>
+            :class="trafficLight(data?.avg_anticipation_minutes, 30, 5, false).badge"
+            x-text="trafficLight(data?.avg_anticipation_minutes, 30, 5, false).label"></span>
         </div>
-        <p class="text-3xl font-bold mt-1" :class="trafficLight(data?.avg_anticipation_hours, 3, 1.5, false).text"
-          x-text="(data?.avg_anticipation_hours ?? 0).toFixed(1) + 'h'"></p>
-        <p class="text-xs text-slate-600 mb-3">entre alerta Telegram y entrada al trade</p>
+        <p class="text-3xl font-bold mt-1" :class="trafficLight(data?.avg_anticipation_minutes, 30, 5, false).text"
+          x-text="(data?.avg_anticipation_minutes ?? 0).toFixed(1) + ' min'"></p>
+        <p class="text-xs text-slate-600 mb-3">entre 1ª alerta del token y entrada al trade</p>
         <div class="bar-track">
-          <div class="bar-fill" :class="trafficLight(data?.avg_anticipation_hours, 3, 1.5, false).bar"
-            :style="'width:' + Math.min((data?.avg_anticipation_hours ?? 0) / 3 * 100, 100) + '%'"></div>
+          <div class="bar-fill" :class="trafficLight(data?.avg_anticipation_minutes, 30, 5, false).bar"
+            :style="'width:' + Math.min((data?.avg_anticipation_minutes ?? 0) / 30 * 100, 100) + '%'"></div>
         </div>
-        <p class="text-right text-xs text-slate-600 mt-1">objetivo: ≥ 3h</p>
+        <p class="text-right text-xs text-slate-600 mt-1">objetivo: ≥ 30 min</p>
       </div>
 
       <!-- Classic Fail Rate (inverted) -->
@@ -358,9 +358,9 @@ function perf() {
           need: `actual: ${d.days_operating} días`,
         },
         {
-          label: 'Anticipación promedio ≥ 3h',
-          ok: d.avg_anticipation_hours >= 3,
-          need: `actual: ${d.avg_anticipation_hours.toFixed(1)}h`,
+          label: 'Anticipación promedio ≥ 30 min',
+          ok: d.avg_anticipation_minutes >= 30,
+          need: `actual: ${d.avg_anticipation_minutes.toFixed(1)} min`,
         },
         {
           label: 'Classic Fail Rate ≤ 20%',

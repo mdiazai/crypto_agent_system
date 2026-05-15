@@ -15,8 +15,10 @@ import structlog
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 from sqlalchemy import update
 
+from sqlalchemy import select
+
 from shared.config import settings
-from shared.models import Trade, TradeDirection, EntryQuality, get_session
+from shared.models import Alert, Trade, TradeDirection, EntryQuality, get_session
 from shared.redis_bus import bus, Channel
 from agents.detector.schemas import ScoredToken
 
@@ -132,6 +134,7 @@ class ExecutorAgent:
         TRADES_OPENED.labels(exchange=exchange_id, mode=mode).inc()
 
         # Persistir en DB
+        entry_time = datetime.now(timezone.utc)
         trade = Trade(
             token_symbol=scored.symbol,
             exchange=exchange_id,
@@ -139,12 +142,28 @@ class ExecutorAgent:
             entry_price=result.price,
             quantity=result.quantity,
             capital_used_usd=capital_usd,
-            entry_time=datetime.now(timezone.utc),
+            entry_time=entry_time,
             pattern_detected=scored.dominant_pattern,
             score_at_entry=scored.composite_score,
             is_paper=settings.paper_trading,
         )
         async with get_session() as session:
+            # Buscar la alerta más antigua del token para medir cuánto antes la detectamos
+            oldest_alert = (
+                await session.execute(
+                    select(Alert)
+                    .where(Alert.token_symbol == scored.symbol)
+                    .order_by(Alert.sent_at.asc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+
+            if oldest_alert:
+                sent = oldest_alert.sent_at
+                if sent.tzinfo is None:
+                    sent = sent.replace(tzinfo=timezone.utc)
+                trade.anticipation_minutes = (entry_time - sent).total_seconds() / 60
+
             session.add(trade)
             await session.flush()
             trade_id = trade.id
