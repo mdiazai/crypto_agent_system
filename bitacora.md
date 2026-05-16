@@ -1077,3 +1077,85 @@ Los próximos trades calcularán el valor correctamente desde el momento de aper
 ```
 
 Pushed a `origin/main`.
+
+---
+
+## Sesión 2026-05-15 (turno 2) — Max Hold Time + diagnóstico de posiciones abiertas
+
+### Contexto
+
+El usuario solicitó auditoría del executor sobre tres puntos: existencia de tiempo máximo
+de hold, frecuencia real del monitor de posiciones, y estado detallado de las posiciones
+paper abiertas.
+
+### Diagnóstico
+
+**1. Max hold time:** No existía. El RiskManager solo tenía SL (8%), TP escalonado
+(30/60/100%), circuit breaker y daily drawdown. Sin tiempo máximo, las posiciones podían
+quedar abiertas indefinidamente.
+
+**2. Position monitor:** El `_position_monitor_loop` en `executor_agent.py` corre cada
+**30 segundos** (`_MONITOR_INTERVAL = 30`), no cada 5 minutos. Revisa TODAS las posiciones
+activas en cada ciclo. `position_tracker.py` es solo un dict en memoria — el loop vive en
+el executor.
+
+**3. Posiciones abiertas:** 20 filas en DB = 12 tokens únicos (mayoría en ambos exchanges).
+Precios obtenidos en vivo via el ExchangeClient del propio container:
+
+| Token | Entrada | Actual | PnL% | Horas open |
+|---|---|---|---|---|
+| EUR (mexc) | 1.1718 | 1.1625 | -0.8% | 62h |
+| UMXM (bitget) | 1.5019 | 1.5207 | +1.3% | 51h |
+| BILL (mexc) | 0.1852 | 0.1740 | -6.0% | 51h |
+| LTC ⚠️ | 57.15 | 57.19 | +0.1% | 49h |
+| XAUT ⚠️ | 4695.4 | 4541.7 | -3.3% | 49h |
+| XRP ⚠️ | 1.4327 | 1.4371 | +0.3% | 49h |
+| BNB ⚠️ | 675.5 | 669.1 | -0.9% | 49h |
+| TRX | 0.3496 | 0.3515 | +0.5% | 49h |
+| ADA | 0.2657 | 0.2615 | -1.6% | 49h |
+| DOGE ⚠️ | 0.1147 | 0.1126 | -1.8% | 49h |
+| TON | 2.113 | 1.971 | -6.7% | 25h |
+| GOLD(PAXG) | 4565 | 4543.9 | -0.5% | 15h |
+
+⚠️ = large-cap filtrado del watchlist después de que el executor los compró. Quedaron
+atrapados sin SL ni TP activados porque el precio no se movió lo suficiente.
+
+**Problema adicional detectado:** el container del orchestrator no conocía las migraciones
+0004 y 0005 (imagen buildeada antes de que existieran). `alembic current` fallaba con
+"Can't locate revision identified by '0005'". Se reconstruyó el orchestrator → confirmado
+`0005 (head)`.
+
+### Cambios implementados
+
+**`shared/config/settings.py`**
+- `max_hold_hours: int = Field(72, ge=1)`
+
+**`docker-compose.yml`**
+- `MAX_HOLD_HOURS=72` en `x-common-env` (igual que `ALERT_THRESHOLD`)
+
+**`agents/executor/schemas.py`**
+- `"sell_max_hold"` añadido a `TradeAction` Literal
+
+**`agents/executor/risk_manager.py`**
+- Nuevo método `should_max_hold_exit(position)`: calcula horas desde `opened_at`,
+  retorna True si `>= settings.max_hold_hours`
+
+**`agents/executor/executor_agent.py`**
+- En `_check_position()`: check de max hold **antes** del stop loss
+- Log `executor_agent.max_hold_exit` con symbol, exchange y max_hold_hours
+- `_execute_sell()` con action `"sell_max_hold"` y reason `"max_hold_timeout"`
+- `_tracker.close()` reconoce `"sell_max_hold"` junto a `"sell_stop_loss"` y `"sell_final"`
+
+### Efecto esperado
+
+Las 5 posiciones ⚠️ (LTC, XAUT, XRP, BNB, DOGE) se cerrarán ~23h después del deploy.
+EUR se cierra en ~10h. BILL y TON pueden llegar al SL (-8%) antes del timeout.
+Las posiciones futuras nunca quedarán abiertas más de 72h.
+
+### Commit
+
+```
+93d6981 feat: max hold time (72h) para cerrar posiciones estancadas
+```
+
+Pushed a `origin/main`.
