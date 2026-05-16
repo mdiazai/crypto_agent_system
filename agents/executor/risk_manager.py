@@ -77,6 +77,15 @@ class RiskManager:
         qty = position.total_quantity * (level.sell_pct / 100)
         return min(qty, position.remaining_quantity)
 
+    # ── Max Hold Time ─────────────────────────────────────────────────────────
+
+    def should_max_hold_exit(self, position: PositionState) -> bool:
+        opened = position.opened_at
+        if opened.tzinfo is None:
+            opened = opened.replace(tzinfo=timezone.utc)
+        hold_hours = (datetime.now(timezone.utc) - opened).total_seconds() / 3600
+        return hold_hours >= settings.max_hold_hours
+
     # ── Daily Drawdown ────────────────────────────────────────────────────────
 
     def _today_utc(self) -> str:

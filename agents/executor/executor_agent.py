@@ -236,6 +236,19 @@ class ExecutorAgent:
     async def _check_position(self, pos: PositionState) -> None:
         current_price = await self._client.get_price(pos.symbol, pos.exchange)
 
+        # ── Max Hold Time ─────────────────────────────────────────────────────
+        if self._risk.should_max_hold_exit(pos):
+            log.warning(
+                "executor_agent.max_hold_exit",
+                symbol=pos.symbol,
+                exchange=pos.exchange,
+                max_hold_hours=settings.max_hold_hours,
+            )
+            await self._execute_sell(
+                pos, pos.remaining_quantity, current_price, "sell_max_hold", "max_hold_timeout"
+            )
+            return
+
         # ── Stop Loss ─────────────────────────────────────────────────────────
         if self._risk.should_stop_loss(pos, current_price):
             await self._execute_sell(
@@ -347,7 +360,7 @@ class ExecutorAgent:
             is_paper=settings.paper_trading,
         ).model_dump())
 
-        if action in ("sell_stop_loss", "sell_final"):
+        if action in ("sell_stop_loss", "sell_final", "sell_max_hold"):
             self._tracker.close(pos.symbol, pos.exchange)
 
 

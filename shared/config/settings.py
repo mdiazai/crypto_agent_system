@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     max_daily_loss_pct: float = Field(15.0, gt=0)
     max_consecutive_losses: int = Field(3, ge=1)
     circuit_breaker_hours: int = Field(24, ge=1)
+    max_hold_hours: int = Field(72, ge=1)
 
     # ── Modo de Operación ─────────────────────────────────────────────────────
     paper_trading: bool = Field(True)

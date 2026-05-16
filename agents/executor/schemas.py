@@ -37,7 +37,7 @@ class OrderResult(BaseModel):
     is_paper: bool = False
 
 
-TradeAction = Literal["buy", "sell_tp1", "sell_tp2", "sell_final", "sell_stop_loss"]
+TradeAction = Literal["buy", "sell_tp1", "sell_tp2", "sell_final", "sell_stop_loss", "sell_max_hold"]
 
 
 class TradeResult(BaseModel):
