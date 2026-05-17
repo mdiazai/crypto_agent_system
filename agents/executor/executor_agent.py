@@ -100,6 +100,19 @@ class ExecutorAgent:
             log.warning("executor_agent.trading_blocked", reason=reason, symbol=scored.symbol)
             return
 
+        # Verificar capital disponible antes de abrir
+        capital_en_uso = sum(p.capital_usd for p in self._tracker.all_positions())
+        capital_disponible = settings.capital_total_usd - capital_en_uso
+        capital_minimo = settings.capital_total_usd * 0.10
+        if capital_disponible < capital_minimo:
+            log.warning(
+                "executor_agent.capital_insuficiente",
+                symbol=scored.symbol,
+                capital_disponible=round(capital_disponible, 2),
+                capital_minimo=round(capital_minimo, 2),
+            )
+            return
+
         # Abrir en MEXC y Bitget en paralelo
         await asyncio.gather(
             self._open_position(scored, "mexc", settings.mexc_capital_usd),
@@ -181,6 +194,7 @@ class ExecutorAgent:
             capital_usd=capital_usd,
             stop_loss_price=sl_price,
             take_profit_levels=tp_levels,
+            opened_at=entry_time,
             is_paper=settings.paper_trading,
             score_at_entry=scored.composite_score,
             pattern_detected=scored.dominant_pattern,
@@ -234,7 +248,31 @@ class ExecutorAgent:
                     )
 
     async def _check_position(self, pos: PositionState) -> None:
-        current_price = await self._client.get_price(pos.symbol, pos.exchange)
+        # Intentar precio en el exchange primario; si falla, intentar el fallback.
+        # Sin precio no se pueden verificar SL ni TP — se loguea y se omite el ciclo.
+        _FALLBACK = {"mexc": "bitget", "bitget": "mexc"}
+        current_price: float | None = None
+        for attempt_exchange in (pos.exchange, _FALLBACK.get(pos.exchange, "")):
+            if not attempt_exchange:
+                break
+            try:
+                current_price = await self._client.get_price(pos.symbol, attempt_exchange)
+                break
+            except Exception as e:
+                log.warning(
+                    "executor_agent.price_fetch_failed",
+                    symbol=pos.symbol,
+                    exchange=attempt_exchange,
+                    error=str(e),
+                )
+
+        if current_price is None:
+            log.error(
+                "executor_agent.price_unavailable",
+                symbol=pos.symbol,
+                note="SL/TP/MaxHold omitidos este ciclo",
+            )
+            return
 
         # ── Max Hold Time ─────────────────────────────────────────────────────
         if self._risk.should_max_hold_exit(pos):

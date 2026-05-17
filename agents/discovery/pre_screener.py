@@ -17,14 +17,16 @@ VOLUME_MAX_USD_FALLBACK = 10_000_000  # $10M máximo — conservador sin datos d
 # Tokens de gran capitalización conocidos — excluidos siempre, incluso en fallback mode
 LARGE_CAP_BLACKLIST: set[str] = {
     # Top crypto por market cap
-    "BTC", "ETH", "BNB", "XRP", "SOL", "ADA", "DOGE", "AVAX",
-    "DOT", "MATIC", "LINK", "UNI", "LTC", "BCH", "ATOM", "XLM",
-    "ALGO", "VET", "FIL", "THETA", "ETC", "XMR", "HBAR", "NEAR",
-    "FTM", "SAND", "MANA", "AXS", "GALA", "ENJ",
+    "BTC", "ETH", "BNB", "XRP", "SOL", "ADA", "DOGE", "TRX", "AVAX",
+    "DOT", "MATIC", "LINK", "UNI", "LTC", "BCH", "ATOM", "XLM", "TON",
+    "ALGO", "VET", "FIL", "THETA", "ETC", "XMR", "HBAR", "NEAR", "SHIB",
+    "FTM", "SAND", "MANA", "AXS", "GALA", "ENJ", "SUI", "APT", "INJ",
     # Activos de commodities tokenizados
-    "XAUT", "PAXG",
+    "XAUT", "PAXG", "GOLD", "SILVER",
     # Wrapped / staked
     "WBTC", "STETH", "WETH", "CBBTC",
+    # Stablecoins
+    "USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USDD", "USDP",
 }
 
 

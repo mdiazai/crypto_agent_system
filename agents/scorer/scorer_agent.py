@@ -17,6 +17,17 @@ log = structlog.get_logger(__name__)
 
 DEDUP_WINDOW = timedelta(hours=2)
 
+# Espejo del LARGE_CAP_BLACKLIST de pre_screener — el scorer no tiene acceso al módulo discovery
+EXCLUDED_SYMBOLS: set[str] = {
+    "BTC", "ETH", "BNB", "XRP", "SOL", "ADA", "DOGE", "TRX", "AVAX",
+    "DOT", "MATIC", "LINK", "UNI", "LTC", "BCH", "ATOM", "XLM", "TON",
+    "ALGO", "VET", "FIL", "THETA", "ETC", "XMR", "HBAR", "NEAR", "SHIB",
+    "FTM", "SAND", "MANA", "AXS", "GALA", "ENJ", "SUI", "APT", "INJ",
+    "XAUT", "PAXG", "GOLD", "SILVER",
+    "WBTC", "STETH", "WETH", "CBBTC",
+    "USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USDD", "USDP",
+}
+
 # ── Prometheus metrics ────────────────────────────────────────────────────────
 ALERTS_SENT = Counter("scorer_alerts_sent_total", "Alertas Telegram enviadas", ["pattern"])
 ALERTS_DEDUPED = Counter("scorer_alerts_deduped_total", "Alertas omitidas por deduplicación")
@@ -52,6 +63,10 @@ class ScorerAgent:
             return
 
         if not scored.above_alert_threshold:
+            return
+
+        if scored.symbol in EXCLUDED_SYMBOLS:
+            log.info("scorer_agent.excluded_symbol", symbol=scored.symbol)
             return
 
         # Heartbeat: scorer está activo procesando señales (TTL 12 min = 2 ciclos de monitor)

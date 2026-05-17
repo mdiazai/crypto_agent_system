@@ -39,6 +39,9 @@ class PositionTracker:
         for trade in rows:
             sl_price = self._risk.calc_stop_loss_price(trade.entry_price)
             tp_levels = self._risk.build_take_profit_levels(trade.quantity)
+            opened_at = trade.entry_time
+            if opened_at.tzinfo is None:
+                opened_at = opened_at.replace(tzinfo=timezone.utc)
             position = PositionState(
                 trade_id=trade.id,
                 symbol=trade.token_symbol,
@@ -49,10 +52,16 @@ class PositionTracker:
                 capital_usd=trade.capital_used_usd,
                 stop_loss_price=sl_price,
                 take_profit_levels=tp_levels,
-                opened_at=trade.entry_time,
+                opened_at=opened_at,
                 is_paper=trade.is_paper,
                 score_at_entry=trade.score_at_entry or 0.0,
                 pattern_detected=trade.pattern_detected or "",
+            )
+            log.info(
+                "position_tracker.loaded_position",
+                symbol=trade.token_symbol,
+                exchange=trade.exchange,
+                opened_at=opened_at.isoformat(),
             )
             key: PositionKey = (trade.token_symbol, trade.exchange)
             self._positions[key] = position
