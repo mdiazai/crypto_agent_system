@@ -41,7 +41,7 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - Grafana:       http://localhost:3000 (admin / admin)
 - Prometheus:    http://localhost:8000
 
-## Configuración activa (2026-05-16)
+## Configuración activa (2026-05-16 turno 2)
 - ALERT_THRESHOLD=60 (docker-compose override; .env tiene 62 — actualizar manualmente)
 - MAX_HOLD_HOURS=72 (docker-compose override; default en settings.py)
 - INFLOW_THRESHOLD_USD=200000
@@ -49,10 +49,10 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - TELEGRAM_CHAT_ID=6517856768 (@mi_crypto_agent_bot)
 - Máx score teórico real ≈ 67.5 pts (sin Coinglass/derivados)
 
-## Estado operativo (2026-05-16)
+## Estado operativo (2026-05-16 turno 2)
 - Pipeline: Discovery → Monitor (~532 tokens/ciclo, ~534 snapshots, ~113s) → Detector → Scorer → Executor
 - 1 posición paper abierta: GOLD(PAXG)/mexc (~38h open, cerrará por MAX_HOLD en ~34h)
-- Circuit breaker activo 24h desde TON stop loss (~23:37 UTC 2026-05-16)
+- Circuit breaker activo 24h desde TON stop loss (expira ~23:37 UTC 2026-05-17)
 - Telegram: best-effort — si falla, loguea y continúa guardando en DB + marcando `alert_sent=True`
 - Watchlist filtrada: $2M–$100M market cap, sin top-100 conocidos + stablecoins
 - Alembic en 0005 (`anticipation_minutes` en trades); orchestrator rebuildeado para reconocer 0004/0005
@@ -62,6 +62,7 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - Scorer heartbeat: Redis `scorer:heartbeat` (TTL 12min)
 - Discovery corre al startup y a las 02:00 UTC (APScheduler); trigger manual vía Dashboard
 - Performance screen: muestra `avg_anticipation_minutes` (vs oldest alert)
+- Claude Advisor operativo con `claude-sonnet-4-6` (corregido desde `claude-sonnet-4-20250514` deprecado)
 
 ## Próximos pasos
 - Esperar cierre de GOLD(PAXG) por MAX_HOLD (~34h) y fin del circuit breaker (~24h)
