@@ -35,42 +35,39 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - Type hints en todo el código
 - structlog para logging
 
-## Estado del deploy (Docker)
-- Dashboard UI: http://localhost:8001 (admin / admin1234)
-- Orchestrator:  http://localhost:8080/health
-- Grafana:       http://localhost:3000 (admin / admin)
-- Prometheus:    http://localhost:8000
+## Estado del deploy (VPS Hostinger — activo desde 2026-05-17)
+- VPS: 167.88.33.68 — Ubuntu 24.04, 8GB RAM, 2 cores, 100GB SSD
+- Deploy: `/opt/crypto_agent_system`
+- Dashboard UI: http://167.88.33.68:8001 (admin / ver .env DASHBOARD_PASSWORD)
+- Orchestrator:  http://167.88.33.68:8080/health
+- Grafana:       http://167.88.33.68:3000 (admin / admin)
+- SSH:           ssh root@167.88.33.68
+- Instancia local: APAGADA (docker compose down ejecutado 2026-05-17)
 
-## Configuración activa (2026-05-16 turno 2)
-- ALERT_THRESHOLD=60 (docker-compose override; .env tiene 62 — actualizar manualmente)
-- MAX_HOLD_HOURS=72 (docker-compose override; default en settings.py)
+## Configuración activa (2026-05-17)
+- ALERT_THRESHOLD=60 (sincronizado en .env del VPS)
+- MAX_HOLD_HOURS=72 (agregado al .env del VPS)
 - INFLOW_THRESHOLD_USD=200000
-- TELEGRAM_BOT_TOKEN=renovado en BotFather (override en docker-compose.yml — actualizar .env)
-- TELEGRAM_CHAT_ID=6517856768 (@mi_crypto_agent_bot)
+- TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID=6517856768 en .env del VPS
 - Máx score teórico real ≈ 67.5 pts (sin Coinglass/derivados)
 
-## Estado operativo (2026-05-16 turno 3)
-- Pipeline: Discovery → Monitor (~532 tokens/ciclo, ~534 snapshots, ~113s) → Detector → Scorer → Executor
-- 1 posición paper abierta: GOLD(PAXG)/mexc (~39h open, PnL -0.68%, cierra por MAX_HOLD en ~33h)
-- Circuit breaker: RESETEADO MANUALMENTE (pérdidas vinieron de tokens large-cap incorrectos, no del algoritmo)
-- Watchlist confirmada limpia: 0 large-caps activos en token_candidates tras el rebuild de discovery
-- Telegram: best-effort — si falla, loguea y continúa guardando en DB + marcando `alert_sent=True`
-- Watchlist filtrada: $2M–$100M market cap, sin top-100 conocidos + stablecoins
-- Alembic en 0005 (`anticipation_minutes` en trades); orchestrator rebuildeado para reconocer 0004/0005
-- Executor: monitor de posiciones cada 30s; max hold 72h; price fetch con fallback a exchange alternativo; capital check (bloquea si < 10% capital disponible)
-- Scorer: filtra `EXCLUDED_SYMBOLS` (espejo de `LARGE_CAP_BLACKLIST`) antes de enviar alerta
-- pre_screener: `LARGE_CAP_BLACKLIST` extendida con TRX, SHIB, TON, GOLD, SILVER, SUI, APT, INJ, stablecoins
-- Scorer heartbeat: Redis `scorer:heartbeat` (TTL 12min)
-- Discovery corre al startup y a las 02:00 UTC (APScheduler); trigger manual vía Dashboard
-- Performance screen: muestra `avg_anticipation_minutes` (vs oldest alert)
-- Claude Advisor operativo con `claude-sonnet-4-6` (corregido desde `claude-sonnet-4-20250514` deprecado)
+## Estado operativo (2026-05-17)
+- Sistema corriendo en VPS 24/7 con restart: unless-stopped en todos los servicios
+- DB nueva en VPS — sin historial de trades previos (los trades del sistema local no se migraron)
+- Pipeline: Discovery → Monitor → Detector → Scorer → Executor operativo
+- Circuit breaker: inactivo
+- Firewall UFW activo: puertos 22, 8001, 8080, 3000 abiertos
+- Discovery corre al startup y a las 02:00 UTC; primer scan completado: 2099 tokens, 589 pasaron pre_screener
+- Executor: monitor de posiciones cada 30s; max hold 72h; price fetch con fallback; capital check
+- Scorer: filtra EXCLUDED_SYMBOLS antes de enviar alerta
+- pre_screener: LARGE_CAP_BLACKLIST completa (large-caps + stablecoins)
+- Claude Advisor: claude-sonnet-4-6
 
 ## Próximos pasos
-- Esperar cierre de GOLD(PAXG) por MAX_HOLD (~33h) — única posición abierta, PnL -0.68%
-- Validar que el Learner procesa trades cerrados una vez que se acumulen datos completos
-- Monitorear el próximo ciclo de Discovery (02:00 UTC) para confirmar que no entran large-caps
-- Actualizar TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ALERT_THRESHOLD y MAX_HOLD_HOURS en .env (actualmente solo en docker-compose)
-- Fix pendiente: circuit breaker publica `{"_system_alert": True, ...}` en `channel:detector:scored_token` → executor lo recibe y loguea `invalid_payload` (ruido, no crítico)
+- Monitorear primeras señales reales en el VPS (scorer y learner en "unknown" hasta primer trade)
+- Validar que Telegram envía alertas correctamente desde el VPS
+- Validar que el Learner procesa trades cerrados cuando se acumulen datos
+- Fix pendiente: circuit breaker publica `{"_system_alert": True, ...}` en `channel:detector:scored_token` → ruido no crítico
 - Coinglass API pública v2 DEPRECADA — sin señales de derivados hasta nueva fuente
 - CCXT da funding/OI solo para contratos SWAP, no spot
 

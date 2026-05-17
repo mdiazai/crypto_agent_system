@@ -1422,3 +1422,100 @@ de todas formas son secundarios al flag Redis).
 ### Sin commits nuevos de código en esta sesión
 
 Solo cambios en CLAUDE.md y bitácora.
+
+---
+
+## Sesión 2026-05-17 — Migración al VPS de Hostinger
+
+### Contexto
+
+El sistema venía corriendo localmente en Windows 11. Se decidió migrar a un VPS de Hostinger
+para operación 24/7 sin depender de que la máquina local esté encendida.
+
+### Specs del VPS
+
+- IP: 167.88.33.68
+- OS: Ubuntu 24.04.4 LTS
+- RAM: 7.8 GB, 2 cores, 96 GB SSD (90 GB disponibles)
+- Sin swap (no crítico para el stack actual)
+
+### Pasos ejecutados
+
+**PASO 1 — Verificación local**
+- Todas las variables del `.env` local presentes y con valor
+- `restart: unless-stopped` confirmado en los 12 servicios del `docker-compose.yml`
+- Detectado: `ALERT_THRESHOLD=62` en `.env` vs `60` en `docker-compose.yml` → pendiente sincronizar
+
+**PASO 2 — Instalación de Docker y Git en VPS**
+- Docker CE 29.5.0 instalado via `get.docker.com`
+- Docker Compose v5.1.3 incluido como plugin
+- Git 2.43.0 ya disponible en Ubuntu 24.04
+
+**PASO 3 — Clonar repositorio**
+```bash
+git clone https://github.com/mdiazai/crypto_agent_system.git /opt/crypto_agent_system
+```
+
+**PASO 4 — Copiar .env**
+```powershell
+scp "C:\Users\Usuario\Desktop\Cripto\crypto_agent_system\.env" root@167.88.33.68:/opt/crypto_agent_system/.env
+```
+47 variables copiadas correctamente.
+
+**Problema:** el `.env` tenía saltos de línea Windows (CRLF). Los comandos `sed` fallaron
+hasta convertir con `sed -i 's/\r//'`. Lección: siempre convertir a LF antes de editar
+archivos `.env` copiados desde Windows.
+
+**Problema 2:** `echo "VAR=val" >> file` concatenó al final de la última línea (sin `\n`
+final). Fix: usar `printf "\nVAR=val\n"` en lugar de `echo`.
+
+**PASO 5 — Ajustar .env en VPS**
+- `ALERT_THRESHOLD`: 62 → 60 (sincronizado con docker-compose override)
+- `MAX_HOLD_HOURS=72` agregado
+
+**PASO 6-7 — Build y arranque**
+```bash
+cd /opt/crypto_agent_system
+docker compose build && docker compose up -d
+```
+12/12 containers `Up`. Postgres y Redis `healthy`.
+
+**Observación:** el executor tuvo un error `MissingGreenlet` (SQLAlchemy f405) al intentar
+cargar posiciones durante el startup. Se recuperó automáticamente con `count=0`. Probable
+race condition durante la inicialización de la DB nueva. No recurrente.
+
+**PASO 8 — Verificación**
+- `http://167.88.33.68:8001` — Dashboard cargó correctamente
+- `http://167.88.33.68:8080/health` — orchestrator `overall: degraded` (esperado en DB nueva)
+- Discovery completó primer scan: 2099 tokens, 589 pasaron pre_screener
+
+**PASO 9 — Firewall**
+```bash
+ufw allow 22/tcp && ufw allow 8001/tcp && ufw allow 8080/tcp && ufw allow 3000/tcp
+ufw --force enable
+```
+
+**PASO 10 — Apagar instancia local**
+```powershell
+docker compose down  # en C:\Users\Usuario\Desktop\Cripto\crypto_agent_system
+```
+13 containers y network removidos.
+
+### Estado al finalizar
+
+- Sistema corriendo en VPS 24/7
+- DB nueva (sin historial de trades del sistema local)
+- Scorer y Learner en "unknown" — esperando primer score ≥ 60 y primer trade cerrado
+- Instancia local: apagada
+
+### Lecciones aprendidas
+
+1. **CRLF → LF**: archivos `.env` de Windows necesitan `sed -i 's/\r//'` antes de editar
+   con sed en Linux.
+2. **`printf` vs `echo`**: para agregar líneas a archivos sin `\n` final, usar
+   `printf "\nVAR=val\n"` en lugar de `echo`.
+3. **DB nueva = estado cero**: los datos históricos (trades, alertas, token_candidates) no
+   se migraron. El sistema arranca limpio. Si se quiere continuidad de datos, habría que
+   hacer `pg_dump` / `pg_restore`.
+4. **`scp` en Git Bash**: la ruta `C:\path` se interpreta como hostname. Usar PowerShell
+   o la forma `/c/path` de Git Bash.
