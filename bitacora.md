@@ -1284,3 +1284,57 @@ UPDATE trades SET exit_price = entry_price, exit_time = NOW(), pnl_usd = 0, pnl_
 ```
 
 Pushed a `origin/main`.
+
+---
+
+## Sesión 2026-05-16 (turno 2) — Verificación de containers + fix model ID Claude
+
+### Contexto
+
+Al continuar la sesión anterior, se commitearon y pushearon los cambios pendientes de los
+4 bugs críticos y se actualizaron CLAUDE.md y bitácora. Luego se verificó el estado de todos
+los containers.
+
+### Estado de containers
+
+Todos los 12 containers `Up` sin reinicios inesperados:
+- postgres, redis → `healthy`, 3 días arriba
+- detector, monitor, learner, grafana, prometheus → 3 días arriba
+- dashboard, orchestrator → estables
+- executor, scorer, discovery → 10 min (rebuild de la sesión anterior)
+
+### Bug encontrado — model ID Claude deprecado
+
+Los logs del orchestrator mostraban error repetido:
+```
+{"error": "Error code: 404 - {'error': {'type': 'not_found_error', 'message': 'model: claude-sonnet-4-20250514'}}", "event": "claude_advisor.api_error"}
+```
+
+**Causa:** `shared/config/settings.py` tenía hardcodeado `claude-sonnet-4-20250514` como
+default del campo `claude_model`. Ese model ID ya no existe en la API de Anthropic.
+
+**Fix:** cambiado a `claude-sonnet-4-6` (modelo actual Sonnet 4).
+
+```python
+# antes
+claude_model: str = Field("claude-sonnet-4-20250514", description="Claude model ID")
+# después
+claude_model: str = Field("claude-sonnet-4-6", description="Claude model ID")
+```
+
+Orchestrator reiniciado con `--no-deps` → arranca limpio sin errores de API.
+
+### Estado final de la sesión
+
+- Circuit breaker activo (~24h desde TON stop loss, expira ~23:37 UTC 2026-05-17)
+- 1 posición abierta: GOLD(PAXG)/mexc, cierra por MAX_HOLD en ~34h
+- Orchestrator Claude Advisor operativo
+
+### Commits
+
+```
+9c3d293 docs: actualiza CLAUDE.md y bitácora con sesión 2026-05-16 (4 bugs críticos)
+d2c7e19 fix: actualiza claude_model a claude-sonnet-4-6 (4-20250514 deprecado)
+```
+
+Pushed a `origin/main`.
