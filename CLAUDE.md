@@ -49,10 +49,11 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - TELEGRAM_CHAT_ID=6517856768 (@mi_crypto_agent_bot)
 - Máx score teórico real ≈ 67.5 pts (sin Coinglass/derivados)
 
-## Estado operativo (2026-05-16 turno 2)
+## Estado operativo (2026-05-16 turno 3)
 - Pipeline: Discovery → Monitor (~532 tokens/ciclo, ~534 snapshots, ~113s) → Detector → Scorer → Executor
-- 1 posición paper abierta: GOLD(PAXG)/mexc (~38h open, cerrará por MAX_HOLD en ~34h)
-- Circuit breaker activo 24h desde TON stop loss (expira ~23:37 UTC 2026-05-17)
+- 1 posición paper abierta: GOLD(PAXG)/mexc (~39h open, PnL -0.68%, cierra por MAX_HOLD en ~33h)
+- Circuit breaker: RESETEADO MANUALMENTE (pérdidas vinieron de tokens large-cap incorrectos, no del algoritmo)
+- Watchlist confirmada limpia: 0 large-caps activos en token_candidates tras el rebuild de discovery
 - Telegram: best-effort — si falla, loguea y continúa guardando en DB + marcando `alert_sent=True`
 - Watchlist filtrada: $2M–$100M market cap, sin top-100 conocidos + stablecoins
 - Alembic en 0005 (`anticipation_minutes` en trades); orchestrator rebuildeado para reconocer 0004/0005
@@ -65,8 +66,9 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - Claude Advisor operativo con `claude-sonnet-4-6` (corregido desde `claude-sonnet-4-20250514` deprecado)
 
 ## Próximos pasos
-- Esperar cierre de GOLD(PAXG) por MAX_HOLD (~34h) y fin del circuit breaker (~24h)
+- Esperar cierre de GOLD(PAXG) por MAX_HOLD (~33h) — única posición abierta, PnL -0.68%
 - Validar que el Learner procesa trades cerrados una vez que se acumulen datos completos
+- Monitorear el próximo ciclo de Discovery (02:00 UTC) para confirmar que no entran large-caps
 - Actualizar TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ALERT_THRESHOLD y MAX_HOLD_HOURS en .env (actualmente solo en docker-compose)
 - Fix pendiente: circuit breaker publica `{"_system_alert": True, ...}` en `channel:detector:scored_token` → executor lo recibe y loguea `invalid_payload` (ruido, no crítico)
 - Coinglass API pública v2 DEPRECADA — sin señales de derivados hasta nueva fuente

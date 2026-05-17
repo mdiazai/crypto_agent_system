@@ -1338,3 +1338,87 @@ d2c7e19 fix: actualiza claude_model a claude-sonnet-4-6 (4-20250514 deprecado)
 ```
 
 Pushed a `origin/main`.
+
+---
+
+## Sesión 2026-05-16 (turno 3) — Diagnóstico pre-screener + reset circuit breaker
+
+### PASO 1 — Verificación del pre_screener.py
+
+`LARGE_CAP_BLACKLIST` en `pre_screener.py` confirmada completa con todos los símbolos
+requeridos: BTC, ETH, BNB, XRP, SOL, ADA, DOGE, TRX, AVAX, DOT, MATIC, LINK, UNI, LTC,
+BCH, ATOM, XLM, TON, ALGO, VET, FIL, THETA, ETC, XMR, HBAR, NEAR, SHIB, FTM, SAND, MANA,
+AXS, GALA, ENJ, SUI, APT, INJ, XAUT, PAXG, GOLD, SILVER, WBTC, STETH, WETH, CBBTC, USDT,
+USDC, BUSD, DAI, TUSD, FDUSD, USDD, USDP.
+
+El check se aplica en `_reject_reason()` como **segunda condición** (antes del market cap y
+volumen), por lo que ningún token del blacklist puede pasar el screener sin importar sus
+métricas de mercado.
+
+### PASO 2 — Query large-caps activos en token_candidates
+
+**Hallazgo importante:** el campo se llama `symbol`, no `token_symbol` (error en la query
+del usuario). Query corregida:
+
+```sql
+SELECT symbol, COUNT(*) FROM token_candidates
+WHERE status = 'active'
+AND symbol IN ('BTC','ETH','BNB','XRP','ADA','DOGE','TRX','LTC','SOL','TON',
+               'XAUT','PAXG','GOLD','SILVER','SHIB','SUI','APT','INJ',
+               'WBTC','STETH','WETH','USDT','USDC','BUSD','DAI')
+GROUP BY symbol ORDER BY symbol;
+```
+
+**Resultado: 0 rows** — la watchlist ya está limpia. El rebuild de discovery en la sesión
+anterior eliminó todos los large-caps del watchlist activo.
+
+### PASO 3 — UPDATE large-caps
+
+No necesario (0 filas afectadas).
+
+### PASO 4 — Reset manual del circuit breaker
+
+**Análisis:** Las 4 pérdidas consecutivas que activaron el circuit breaker vinieron de
+tokens large-cap (LTC, BNB, TRX, TON) que nunca debieron haber entrado al pipeline. El
+algoritmo de detección no falló — los datos de entrada eran erróneos. Con la blacklist
+extendida ya deployada, esas señales no volverán a ocurrir.
+
+**Decisión:** resetear el circuit breaker manualmente en lugar de esperar las 24h restantes.
+
+```bash
+docker compose exec redis redis-cli DEL "executor:circuit_breaker"
+# → 1 (key eliminada)
+docker compose exec redis redis-cli TTL "executor:circuit_breaker"
+# → -2 (key inexistente, circuit breaker inactivo)
+```
+
+El executor vuelve a operar inmediatamente.
+
+**Nota técnica:** el circuit breaker se implementa como una key Redis con TTL. Se puede
+resetear en cualquier momento con `DEL`. No hay estado adicional que limpiar (los
+`_consecutive_losses` del RiskManager en memoria se resetean al reiniciar el container, y
+de todas formas son secundarios al flag Redis).
+
+### Lecciones aprendidas
+
+1. **El circuit breaker tiene doble propósito**: proteger contra pérdidas reales del
+   algoritmo Y contra errores de configuración del pipeline. Cuando las pérdidas son de
+   origen conocido y corregido, el reset manual es apropiado.
+
+2. **El campo `symbol` vs `token_symbol`**: la tabla `token_candidates` usa `symbol`;
+   la tabla `trades` usa `token_symbol`. Importante para futuras queries.
+
+3. **La blacklist del pre_screener solo protege en Discovery**: tokens insertados antes
+   del fix pueden seguir en `token_candidates` con `status='active'`. Verificar
+   periódicamente (o agregar limpieza retroactiva en el script de Discovery).
+
+### Estado al finalizar
+
+- Circuit breaker: INACTIVO — executor operativo para nuevas señales
+- Watchlist: 0 large-caps activos confirmado
+- 1 posición abierta: GOLD(PAXG)/mexc, ~39h, PnL -0.68%, cierra en ~33h por MAX_HOLD
+- Próximo Discovery: 02:00 UTC — primer ciclo con blacklist completa
+
+### Sin commits nuevos de código en esta sesión
+
+Solo cambios en CLAUDE.md y bitácora.
