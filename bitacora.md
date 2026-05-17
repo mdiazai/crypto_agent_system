@@ -1159,3 +1159,128 @@ Las posiciones futuras nunca quedarán abiertas más de 72h.
 ```
 
 Pushed a `origin/main`.
+
+---
+
+## Sesión 2026-05-16 — 4 bugs críticos: stop loss bypass, capital sin límite, large-cap sin filtro
+
+### Contexto y alerta del usuario
+
+El sistema mostraba PnL –$261.16, win rate 30% y 14 posiciones abiertas con solo 3 alertas
+enviadas. Tras el deploy del max hold time, las posiciones de large-cap (LTC, XAUT, XRP, BNB,
+TRX, ADA, DOGE, TON) se empezaron a cerrar con max hold. Sin embargo, emergieron 4 bugs
+críticos que impedían el funcionamiento correcto del risk management.
+
+### Bug 1 — Stop loss silenciado por excepción (root cause del -23% de BILL)
+
+**Causa raíz:** `ExchangeClient.get_price()` lleva decorador `@exchange_retry` con `reraise=True`.
+Si MEXC tiene rate limiting o timeout en 5 intentos consecutivos, la excepción escapa de
+`get_price()`, propaga hasta `_check_position()`, y es capturada por el monitor loop como
+`"executor_agent.monitor_error"`. El stop loss, take profit y max hold **nunca se ejecutan** ese ciclo.
+
+BILL cayó a -23% (mucho más que el -8% del stop loss configurado) precisamente porque el price
+fetch falló repetidamente y el SL no se activó.
+
+**Fix en `executor_agent.py` — `_check_position()`:**
+```python
+_FALLBACK = {"mexc": "bitget", "bitget": "mexc"}
+current_price: float | None = None
+for attempt_exchange in (pos.exchange, _FALLBACK.get(pos.exchange, "")):
+    if not attempt_exchange:
+        break
+    try:
+        current_price = await self._client.get_price(pos.symbol, attempt_exchange)
+        break
+    except Exception as e:
+        log.warning("executor_agent.price_fetch_failed", symbol=pos.symbol,
+                    exchange=attempt_exchange, error=str(e))
+
+if current_price is None:
+    log.error("executor_agent.price_unavailable", symbol=pos.symbol,
+              note="SL/TP/MaxHold omitidos este ciclo")
+    return
+```
+
+Ahora: si MEXC falla, intenta Bitget (y viceversa). Si ambos fallan, loguea claramente y
+retorna sin ejecutar checks de riesgo — explícito, nunca silencioso.
+
+### Bug 2 — Sin límite de capital (leverage infinito en paper)
+
+**Causa:** El executor abría posiciones en todos los tokens que superaban el umbral sin verificar
+cuánto capital total estaba comprometido. En paper mode, `MEXC_CAPITAL_USD + BITGET_CAPITAL_USD`
+podía multiplicarse por N señales simultáneas.
+
+**Fix en `executor_agent.py` — `_handle_signal()`:**
+```python
+capital_en_uso = sum(p.capital_usd for p in self._tracker.all_positions())
+capital_disponible = settings.capital_total_usd - capital_en_uso
+capital_minimo = settings.capital_total_usd * 0.10
+if capital_disponible < capital_minimo:
+    log.warning("executor_agent.capital_insuficiente", ...)
+    return
+```
+
+Bloquea nuevas posiciones cuando queda < 10% del capital total disponible.
+
+### Bug 3 — Large-cap tokens pasaban el filtro del pre-screener
+
+**Causa:** `LARGE_CAP_BLACKLIST` en `pre_screener.py` no incluía TRX, SHIB, TON, GOLD, SILVER,
+SUI, APT, INJ ni ninguna stablecoin. Tokens como TRX, ADA, TON y DOGE entraron al watchlist
+durante Discovery, luego el Detector los puntuó, y el Executor compró.
+
+**Fix en `pre_screener.py`:** extendido `LARGE_CAP_BLACKLIST` con los símbolos faltantes y todas
+las stablecoins principales (USDT, USDC, BUSD, DAI, TUSD, FDUSD, USDD, USDP).
+
+### Bug 4 — Scorer sin blacklist propia (alertas de large-cap enviadas a Telegram)
+
+**Causa:** El Scorer no importa desde `agents.discovery.pre_screener` (diferente container).
+Enviaba alertas Telegram de tokens large-cap que ya habían sido blacklisteados en pre_screener
+pero estaban en el watchlist desde runs anteriores.
+
+**Fix en `scorer_agent.py`:** añadido `EXCLUDED_SYMBOLS` (espejo de `LARGE_CAP_BLACKLIST`) al
+nivel de módulo. Antes de enviar alerta:
+```python
+if scored.symbol in EXCLUDED_SYMBOLS:
+    log.info("scorer_agent.excluded_symbol", symbol=scored.symbol)
+    return
+```
+
+### Bug adicional — `opened_at` siempre NOW en position reload
+
+**Causa:** `position_tracker.py:load_from_db()` no normalizaba timezone. Las posiciones
+recargadas al reiniciar el container podían compararse mal contra `datetime.now(timezone.utc)`,
+haciendo que el max hold fallara en algunos casos.
+
+**Fix en `position_tracker.py`:**
+```python
+opened_at = trade.entry_time
+if opened_at.tzinfo is None:
+    opened_at = opened_at.replace(tzinfo=timezone.utc)
+position = PositionState(..., opened_at=opened_at, ...)
+log.info("position_tracker.loaded_position", symbol=..., opened_at=opened_at.isoformat())
+```
+
+### Cierre manual de posiciones DOGE
+
+Con los fixes implementados y los containers reconstruidos, todas las large-cap se fueron
+cerrando por max hold. Las últimas 2 posiciones DOGE (mexc + bitget) se cerraron manualmente
+via psql con PnL=0 (eran error del sistema):
+
+```sql
+UPDATE trades SET exit_price = entry_price, exit_time = NOW(), pnl_usd = 0, pnl_pct = 0,
+  entry_quality = 'bad' WHERE token_symbol = 'DOGE' AND exit_price IS NULL;
+```
+
+### Estado al finalizar la sesión
+
+- 1 posición paper abierta: GOLD(PAXG)/mexc a ~38h, ~34h hasta max hold (72h)
+- Circuit breaker activo por 24h desde TON stop loss (~23:37 UTC 2026-05-16)
+- Containers rebuild completado: executor, scorer, discovery
+
+### Commit
+
+```
+14fdbb0 fix: 4 bugs críticos — stop loss bypass, capital mgmt, large-cap filter, capital check
+```
+
+Pushed a `origin/main`.
