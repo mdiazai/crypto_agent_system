@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # ── AI / LLM ──────────────────────────────────────────────────────────────
     anthropic_api_key: SecretStr = Field(..., description="Anthropic Claude API key")
-    claude_model: str = Field("claude-sonnet-4-20250514", description="Claude model ID")
+    claude_model: str = Field("claude-sonnet-4-6", description="Claude model ID")
 
     # ── Exchange: MEXC ────────────────────────────────────────────────────────
     mexc_api_key: SecretStr = Field(...)
