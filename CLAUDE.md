@@ -44,23 +44,26 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - SSH:           ssh root@167.88.33.68
 - Instancia local: APAGADA (docker compose down ejecutado 2026-05-17)
 
-## Configuración activa (2026-05-17)
+## Configuración activa (2026-05-18)
 - ALERT_THRESHOLD=60 (sincronizado en .env del VPS)
 - MAX_HOLD_HOURS=72 (agregado al .env del VPS)
+- PRICE_MAX_USD=100 (filtro nuevo en pre_screener — tokens >$100 excluidos)
 - INFLOW_THRESHOLD_USD=200000
 - TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID=6517856768 en .env del VPS
 - Máx score teórico real ≈ 67.5 pts (sin Coinglass/derivados)
 
-## Estado operativo (2026-05-17)
+## Estado operativo (2026-05-18)
 - Sistema corriendo en VPS 24/7 con restart: unless-stopped en todos los servicios
-- DB nueva en VPS — sin historial de trades previos (los trades del sistema local no se migraron)
+- DB nueva en VPS — sin historial de trades previos
 - Pipeline: Discovery → Monitor → Detector → Scorer → Executor operativo
 - Circuit breaker: inactivo
 - Firewall UFW activo: puertos 22, 8001, 8080, 3000 abiertos
-- Discovery corre al startup y a las 02:00 UTC; primer scan completado: 2099 tokens, 589 pasaron pre_screener
+- Discovery: 2097 tokens escaneados, 203 pasan pre_screener (bajó de 589 por filtro precio >$100)
 - Executor: monitor de posiciones cada 30s; max hold 72h; price fetch con fallback; capital check
-- Scorer: filtra EXCLUDED_SYMBOLS antes de enviar alerta
-- pre_screener: LARGE_CAP_BLACKLIST completa (large-caps + stablecoins)
+- Scorer: heartbeat independiente cada 60s (TTL 180s); filtra EXCLUDED_SYMBOLS antes de alertar
+- pre_screener: LARGE_CAP_BLACKLIST extendida + filtro price_max_usd=$100
+  - Símbolos agregados: GOLD(PAXG), GOLD(XAUT), CACHE, DGX, SLVT, SLVX, OIL, WBNB, GUSD, FRAX
+  - Root cause GOLD(PAXG): símbolo compuesto no matcheaba blacklist exacta → corregido
 - Claude Advisor: claude-sonnet-4-6
 
 ## Próximos pasos

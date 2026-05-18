@@ -1519,3 +1519,65 @@ docker compose down  # en C:\Users\Usuario\Desktop\Cripto\crypto_agent_system
    hacer `pg_dump` / `pg_restore`.
 4. **`scp` en Git Bash**: la ruta `C:\path` se interpreta como hostname. Usar PowerShell
    o la forma `/c/path` de Git Bash.
+
+---
+
+## Sesión 2026-05-18 — Scorer heartbeat + fix GOLD(PAXG) + filtro precio
+
+### Scorer: heartbeat independiente
+
+El heartbeat del scorer solo se actualizaba cuando procesaba un token ≥ umbral. Si no
+había señales altas, el orchestrator marcaba al scorer como "unknown" aunque estuviera
+funcionando correctamente.
+
+**Fix en `scorer_agent.py`:**
+- Nuevo método `_heartbeat_loop()`: corre en paralelo al listener, actualiza
+  `scorer:heartbeat` cada 60 segundos con TTL de 180s
+- Se lanza como `asyncio.create_task()` en `start()` y se cancela correctamente en
+  `CancelledError`
+- Usa `bus._client.setex()` igual que el heartbeat anterior, sin dependencias nuevas
+
+### Fix GOLD(PAXG): root cause del símbolo compuesto
+
+GOLD(PAXG) generó alertas a pesar de estar en la blacklist. El motivo: MEXC lo lista con
+el símbolo compuesto `"GOLD(PAXG)"`, no como `"GOLD"` ni `"PAXG"` por separado. El check
+`if t.symbol in LARGE_CAP_BLACKLIST` no matcheaba ninguno.
+
+**Fix en `pre_screener.py`:**
+- Agregados explícitamente: `"GOLD(PAXG)"` y `"GOLD(XAUT)"` a la blacklist
+- Nuevos símbolos: CACHE, DGX, SLVT, SLVX, OIL (commodities), WBNB (wrapped),
+  GUSD, FRAX (stablecoins)
+- Sincronizado en `scorer_agent.py` → `EXCLUDED_SYMBOLS`
+
+### Filtro por precio unitario (PRICE_MAX_USD=100)
+
+Los criminal pumps ocurren en tokens de precio bajo ($0.001–$10 típicamente). Un token
+de $4.569 como PAXG no puede generar el tipo de movimiento porcentual buscado con
+$1.000 de capital.
+
+**Fix en `pre_screener.py`:**
+- Nueva constante `PRICE_MAX_USD = 100.0`
+- Agregado parámetro `price_max_usd` al `__init__` del `PreScreener`
+- Nueva condición en `_reject_reason()`:
+  ```python
+  if t.current_price is not None and t.current_price > self.price_max_usd:
+      return f"price_too_high:{t.current_price:.2f}"
+  ```
+- Efecto inmediato: watchlist bajó de 589 → 203 tokens en el siguiente scan
+
+### Resultado en VPS
+
+```
+pre_screener.done: total=2097, passing=203, rejected=1894
+```
+
+386 tokens adicionales rechazados por el filtro de precio respecto al ciclo anterior.
+
+### Commits
+
+```
+29085f2 feat: heartbeat independiente en scorer cada 60s (TTL 180s)
+0e049fc fix: blacklist extendida + filtro precio >$100 en pre_screener
+```
+
+Pushed a `origin/main`. VPS actualizado con `git pull && docker compose restart discovery scorer`.
