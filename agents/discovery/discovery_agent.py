@@ -104,12 +104,14 @@ class DiscoveryAgent:
         passing, rejected = self._screener.screen(all_tokens)
         passing_symbols = {t.symbol for t in passing}
 
-        # 4b. Enriquecer tokens passing con contract address de Ethereum
+        # 4b. Enriquecer tokens passing con contract address + chain
         contracts = await self._scanner.get_eth_contracts(passing)
         if contracts:
             passing = [
-                t.model_copy(update={"eth_contract": contracts[t.symbol]})
-                if t.symbol in contracts else t
+                t.model_copy(update={
+                    "eth_contract": contracts[t.symbol][0],
+                    "chain": contracts[t.symbol][1],
+                }) if t.symbol in contracts else t
                 for t in passing
             ]
 
@@ -123,6 +125,7 @@ class DiscoveryAgent:
                         .values(
                             last_checked=datetime.now(timezone.utc),
                             contract_address=token.eth_contract,
+                            chain=token.chain,
                         )
                     )
                 else:
@@ -134,6 +137,7 @@ class DiscoveryAgent:
                         pattern_type=PatternType.unknown,
                         inflow_usd=0.0,
                         contract_address=token.eth_contract,
+                        chain=token.chain,
                         notes=f"mcap={token.market_cap_usd:.0f} vol_ratio={token.volume_to_mcap_ratio:.3f}"
                         if token.market_cap_usd and token.volume_to_mcap_ratio else None,
                     ))

@@ -1,12 +1,15 @@
 """
 Clientes on-chain multi-fuente (gratuitos, sin Glassnode):
-  - Coinglass : funding rate, open interest, long/short ratio (sin API key)
-  - Etherscan : holder count aproximado (API key gratuita)
+  - Coinglass  : funding rate, open interest, long/short ratio (sin API key)
+  - Etherscan  : holder concentration ERC-20 (Ethereum, API key gratuita)
+  - BSCScan    : holder concentration BEP-20 (BNB Chain, API key gratuita)
+  - Helius     : holder concentration SPL (Solana, API key gratuita)
   - CryptoQuant: exchange inflow (API key gratuita con registro)
 
 Todos los métodos devuelven None si la fuente no está disponible o falla.
 El sistema continúa normalmente usando señales alternativas.
 """
+import asyncio
 import httpx
 import structlog
 from typing import Optional
@@ -16,9 +19,23 @@ from shared.utils.retry import http_retry
 
 log = structlog.get_logger(__name__)
 
-COINGLASS_BASE  = "https://open-api.coinglass.com/public/v2"
-ETHERSCAN_BASE  = "https://api.etherscan.io/api"
+COINGLASS_BASE   = "https://open-api.coinglass.com/public/v2"
+ETHERSCAN_BASE   = "https://api.etherscan.io/api"
+BSCSCAN_BASE     = "https://api.bscscan.com/api"
+HELIUS_RPC_BASE  = "https://mainnet.helius-rpc.com"
 CRYPTOQUANT_BASE = "https://api.cryptoquant.com/v1"
+
+
+def _detect_chain(contract_address: str) -> str:
+    """Detecta la chain de un token por el formato del contrato."""
+    if not contract_address:
+        return "unknown"
+    if contract_address.startswith("0x") and len(contract_address) == 42:
+        return "evm"  # Ethereum o BSC — se intentan ambos
+    # Solana: base58, 32-50 chars, sin prefijo 0x
+    if 32 <= len(contract_address) <= 50 and not contract_address.startswith("0x"):
+        return "solana"
+    return "unknown"
 
 
 # ── Coinglass ─────────────────────────────────────────────────────────────────
@@ -103,7 +120,7 @@ class CoinglassClient:
 # ── Etherscan ─────────────────────────────────────────────────────────────────
 
 class EtherscanClient:
-    """Holder count aproximado via Etherscan (requiere API key gratuita)."""
+    """Holder concentration via Etherscan para tokens ERC-20 (Ethereum)."""
 
     def __init__(self) -> None:
         self._api_key = settings.etherscan_api_key.get_secret_value()
@@ -112,7 +129,7 @@ class EtherscanClient:
             log.info("etherscan.no_api_key", msg="Holder data disabled — set ETHERSCAN_API_KEY")
 
     async def get_holder_count(self, contract_address: Optional[str]) -> Optional[int]:
-        """Total de holders únicos para un ERC-20. Proxy inverso de concentración."""
+        """Total de holders únicos para un ERC-20."""
         if not self._available or not contract_address:
             return None
         try:
@@ -138,6 +155,144 @@ class EtherscanClient:
             return None
         except Exception:
             log.debug("etherscan.holder_count_failed", contract=contract_address)
+            return None
+
+    async def get_holder_concentration(self, contract_address: str) -> Optional[float]:
+        """% del supply en top-10 wallets para un ERC-20."""
+        if not self._available or not contract_address:
+            return None
+        try:
+            async with httpx.AsyncClient() as client:
+                resp_holders = await client.get(
+                    ETHERSCAN_BASE,
+                    params={
+                        "module": "token",
+                        "action": "tokenholderlist",
+                        "contractaddress": contract_address,
+                        "page": 1,
+                        "offset": 10,
+                        "apikey": self._api_key,
+                    },
+                    timeout=10,
+                )
+                resp_supply = await client.get(
+                    ETHERSCAN_BASE,
+                    params={
+                        "module": "stats",
+                        "action": "tokensupply",
+                        "contractaddress": contract_address,
+                        "apikey": self._api_key,
+                    },
+                    timeout=10,
+                )
+            holders_data = resp_holders.json()
+            supply_data = resp_supply.json()
+            if holders_data.get("status") != "1" or supply_data.get("status") != "1":
+                return None
+            holders = holders_data.get("result", [])
+            total_supply = int(supply_data.get("result", 0))
+            if not holders or not total_supply:
+                return None
+            top10_sum = sum(int(h.get("TokenHolderQuantity", 0)) for h in holders[:10])
+            return round(top10_sum / total_supply * 100, 2)
+        except Exception:
+            log.debug("etherscan.holder_concentration_failed", contract=contract_address)
+            return None
+
+
+# ── BSCScan ───────────────────────────────────────────────────────────────────
+
+class BSCScanClient:
+    """Holder concentration via BSCScan para tokens BEP-20 (BNB Chain)."""
+
+    def __init__(self) -> None:
+        self._api_key = settings.bscscan_api_key.get_secret_value()
+        self._available = bool(self._api_key)
+        if not self._available:
+            log.info("bscscan.no_api_key", msg="BEP-20 holder data disabled — set BSCSCAN_API_KEY")
+
+    async def get_holder_concentration(self, contract_address: str) -> Optional[float]:
+        """% del supply en top-10 wallets para un BEP-20."""
+        if not self._available or not contract_address:
+            return None
+        try:
+            async with httpx.AsyncClient() as client:
+                resp_holders = await client.get(
+                    BSCSCAN_BASE,
+                    params={
+                        "module": "token",
+                        "action": "tokenholderlist",
+                        "contractaddress": contract_address,
+                        "page": 1,
+                        "offset": 10,
+                        "apikey": self._api_key,
+                    },
+                    timeout=10,
+                )
+                resp_supply = await client.get(
+                    BSCSCAN_BASE,
+                    params={
+                        "module": "stats",
+                        "action": "tokensupply",
+                        "contractaddress": contract_address,
+                        "apikey": self._api_key,
+                    },
+                    timeout=10,
+                )
+            holders_data = resp_holders.json()
+            supply_data = resp_supply.json()
+            if holders_data.get("status") != "1" or supply_data.get("status") != "1":
+                return None
+            holders = holders_data.get("result", [])
+            total_supply = int(supply_data.get("result", 0))
+            if not holders or not total_supply:
+                return None
+            top10_sum = sum(int(h.get("TokenHolderQuantity", 0)) for h in holders[:10])
+            return round(top10_sum / total_supply * 100, 2)
+        except Exception:
+            log.debug("bscscan.holder_concentration_failed", contract=contract_address)
+            return None
+
+
+# ── Helius (Solana) ───────────────────────────────────────────────────────────
+
+class HeliusClient:
+    """Holder concentration via Helius RPC para tokens SPL (Solana)."""
+
+    def __init__(self) -> None:
+        self._api_key = settings.helius_api_key.get_secret_value()
+        self._available = bool(self._api_key)
+        if not self._available:
+            log.info("helius.no_api_key", msg="Solana holder data disabled — set HELIUS_API_KEY")
+
+    async def get_holder_concentration(self, mint_address: str) -> Optional[float]:
+        """% del supply en top-10 wallets para un token SPL."""
+        if not self._available or not mint_address:
+            return None
+        url = f"{HELIUS_RPC_BASE}/?api-key={self._api_key}"
+        try:
+            async with httpx.AsyncClient() as client:
+                resp_large, resp_supply = await asyncio.gather(
+                    client.post(url, json={
+                        "jsonrpc": "2.0", "id": 1,
+                        "method": "getTokenLargestAccounts",
+                        "params": [mint_address],
+                    }, timeout=10),
+                    client.post(url, json={
+                        "jsonrpc": "2.0", "id": 2,
+                        "method": "getTokenSupply",
+                        "params": [mint_address],
+                    }, timeout=10),
+                )
+            accounts = resp_large.json().get("result", {}).get("value", [])
+            supply_val = resp_supply.json().get("result", {}).get("value", {})
+            total_ui = float(supply_val.get("uiAmount") or 0)
+            if not accounts or not total_ui:
+                return None
+            top10_ui = sum(float(a.get("uiAmount") or 0) for a in accounts[:10])
+            return round(top10_ui / total_ui * 100, 2)
+        except Exception:
+            log.debug("helius.holder_concentration_failed", mint=mint_address)
             return None
 
 
@@ -183,11 +338,13 @@ class CryptoQuantClient:
 # ── Fachada unificada ─────────────────────────────────────────────────────────
 
 class OnchainClient:
-    """Combina Coinglass + Etherscan + CryptoQuant en una interfaz única."""
+    """Combina Coinglass + Etherscan + BSCScan + Helius + CryptoQuant."""
 
     def __init__(self) -> None:
         self.coinglass   = CoinglassClient()
         self.etherscan   = EtherscanClient()
+        self.bscscan     = BSCScanClient()
+        self.helius      = HeliusClient()
         self.cryptoquant = CryptoQuantClient()
 
     async def get_funding_rate(self, symbol: str) -> Optional[float]:
@@ -201,6 +358,35 @@ class OnchainClient:
 
     async def get_holder_count(self, contract_address: Optional[str] = None) -> Optional[int]:
         return await self.etherscan.get_holder_count(contract_address)
+
+    async def get_holder_concentration(
+        self,
+        contract_address: Optional[str],
+        chain: Optional[str] = None,
+    ) -> tuple[Optional[float], Optional[str]]:
+        """
+        Retorna (pct_top10, source_name). Detecta la chain automáticamente si no se provee.
+        Orden de intento: Etherscan → BSCScan → Helius.
+        """
+        if not contract_address:
+            return None, None
+
+        detected = chain or _detect_chain(contract_address)
+
+        if detected == "solana":
+            pct = await self.helius.get_holder_concentration(contract_address)
+            return (pct, "Helius") if pct is not None else (None, None)
+
+        if detected == "evm":
+            # Intentar Etherscan primero (Ethereum), luego BSCScan (BNB Chain)
+            pct = await self.etherscan.get_holder_concentration(contract_address)
+            if pct is not None:
+                return pct, "Etherscan"
+            pct = await self.bscscan.get_holder_concentration(contract_address)
+            if pct is not None:
+                return pct, "BSCScan"
+
+        return None, None
 
     async def get_exchange_inflow(self, symbol: str) -> Optional[float]:
         return await self.cryptoquant.get_exchange_inflow(symbol)

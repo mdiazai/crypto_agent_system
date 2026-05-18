@@ -10,7 +10,11 @@ def format_alert(scored: ScoredToken) -> str:
     score_emoji = _score_emoji(scored.composite_score)
     pattern_label = _pattern_label(scored.dominant_pattern)
     inflow_str = _fmt_money(scored.inflow_4h_usd)
-    holder_str = f"{scored.holder_top10_pct:.1f}%" if scored.holder_top10_pct else "N/D"
+    if scored.holder_top10_pct:
+        src = f" ({scored.holder_source})" if scored.holder_source else ""
+        holder_str = f"{scored.holder_top10_pct:.1f}%{src}"
+    else:
+        holder_str = "N/D"
     price_str = _fmt_price(scored.current_price)
     volume_str = _fmt_money(scored.volume_24h_usd)
 

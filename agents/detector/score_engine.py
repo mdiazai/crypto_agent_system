@@ -47,6 +47,7 @@ class ScoreEngine:
             current_price=snapshot.current_price,
             inflow_4h_usd=snapshot.inflow_4h_usd,
             holder_top10_pct=snapshot.holder_top10_pct,
+            holder_source=snapshot.holder_source,
             volume_24h_usd=snapshot.volume_24h_usd,
             funding_rate=snapshot.funding_rate,
             above_alert_threshold=composite >= settings.alert_threshold,

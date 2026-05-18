@@ -49,6 +49,7 @@ class TokenCandidate(Base):
     alert_sent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     score_breakdown: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     contract_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    chain: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:

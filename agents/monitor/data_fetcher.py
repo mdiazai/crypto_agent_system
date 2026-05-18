@@ -101,7 +101,7 @@ class DataFetcher:
 
     _FALLBACK = {"mexc": "bitget", "bitget": "mexc"}
 
-    async def fetch_all(self, symbol: str, exchange_id: str, contract_address: Optional[str] = None) -> Optional[TokenSnapshot]:
+    async def fetch_all(self, symbol: str, exchange_id: str, contract_address: Optional[str] = None, chain: Optional[str] = None) -> Optional[TokenSnapshot]:
         pair = f"{symbol}/USDT"
         errors: list[str] = []
 
@@ -110,14 +110,15 @@ class DataFetcher:
             cq_inflow,
             ls_ratio,
             cg_oi,
-            holder_count,
+            holder_result,
         ) = await asyncio.gather(
             self._onchain.get_exchange_inflow(symbol),
             self._onchain.get_long_short_ratio(symbol),
             self._onchain.get_open_interest(symbol),
-            self._onchain.get_holder_count(contract_address),
+            self._onchain.get_holder_concentration(contract_address, chain),
             return_exceptions=False,
         )
+        holder_top10_pct, holder_source = holder_result if isinstance(holder_result, tuple) else (None, None)
 
         # ── Exchange calls con fallback ───────────────────────────────────────
         ticker = orderbook = funding = open_interest = None
@@ -181,8 +182,9 @@ class DataFetcher:
             inflow_1h_usd=None,
             inflow_4h_usd=inflow_4h,
             inflow_24h_usd=volume_usd,
-            holder_top10_pct=None,
-            total_holders=holder_count,
+            holder_top10_pct=holder_top10_pct,
+            holder_source=holder_source,
+            total_holders=None,
             funding_rate=funding.get("fundingRate") if funding else None,
             open_interest_usd=oi_usd,
             long_short_ratio=ls_ratio,

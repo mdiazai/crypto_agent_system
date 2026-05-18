@@ -25,6 +25,7 @@ class TokenSnapshot(BaseModel):
 
     # ── Concentración de holders ──────────────────────────────────────────────
     holder_top10_pct: Optional[float] = None   # % supply en top-10 wallets
+    holder_source: Optional[str] = None        # "Etherscan" | "BSCScan" | "Helius"
     total_holders: Optional[int] = None
 
     # ── Futuros/Derivados (para patrón Classic) ───────────────────────────────

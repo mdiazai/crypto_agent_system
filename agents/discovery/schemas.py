@@ -17,6 +17,7 @@ class TokenData(BaseModel):
     current_price: Optional[float] = None
     price_change_24h_pct: Optional[float] = None
     eth_contract: Optional[str] = None
+    chain: Optional[str] = None
 
 
 class DiscoveryResult(BaseModel):

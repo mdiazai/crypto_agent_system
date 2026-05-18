@@ -45,6 +45,7 @@ class ScoredToken(BaseModel):
     current_price: float
     inflow_4h_usd: Optional[float] = None
     holder_top10_pct: Optional[float] = None
+    holder_source: Optional[str] = None
     volume_24h_usd: Optional[float] = None
     funding_rate: Optional[float] = None
 

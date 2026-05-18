@@ -218,9 +218,12 @@ class ExchangeScanner:
 
         return tokens
 
-    async def get_eth_contracts(self, tokens: list) -> dict[str, str]:
-        """Llama /coins/{id} para cada token con coingecko_id y extrae el contrato Ethereum."""
-        result: dict[str, str] = {}
+    async def get_eth_contracts(self, tokens: list) -> dict[str, tuple[str, str]]:
+        """Llama /coins/{id} para cada token con coingecko_id y extrae contrato + chain.
+
+        Returns dict[symbol, (contract_address, chain)] where chain is "evm" or "solana".
+        """
+        result: dict[str, tuple[str, str]] = {}
         tokens_with_id = [t for t in tokens if t.coingecko_id]
         if not tokens_with_id:
             return result
@@ -246,8 +249,12 @@ class ExchangeScanner:
                         platforms = data.get("platforms", {})
                         addr = platforms.get("ethereum") or platforms.get("binance-smart-chain")
                         if addr:
-                            result[token.symbol] = addr
-                            log.debug("exchange_scanner.contract_found", symbol=token.symbol, addr=addr[:10] + "...")
+                            result[token.symbol] = (addr, "evm")
+                            log.debug("exchange_scanner.contract_found", symbol=token.symbol, chain="evm", addr=addr[:10] + "...")
+                        elif platforms.get("solana"):
+                            sol_addr = platforms["solana"]
+                            result[token.symbol] = (sol_addr, "solana")
+                            log.debug("exchange_scanner.contract_found", symbol=token.symbol, chain="solana", addr=sol_addr[:10] + "...")
                     await asyncio.sleep(2.0)  # CoinGecko free tier: ~30 req/min
                 except Exception:
                     log.debug("exchange_scanner.contract_fetch_failed", symbol=token.symbol)

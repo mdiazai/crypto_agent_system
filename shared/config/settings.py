@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     # ── On-Chain APIs ─────────────────────────────────────────────────────────
     glassnode_api_key: SecretStr = Field(default="")   # deprecated — no usado
     etherscan_api_key: SecretStr = Field(default="")   # Etherscan free tier
+    bscscan_api_key: SecretStr = Field(default="")     # BSCScan free tier (BEP-20 holders)
+    helius_api_key: SecretStr = Field(default="")      # Helius free tier (Solana holders)
     cryptoquant_api_key: SecretStr = Field(default="") # CryptoQuant free tier
     solscan_api_key: SecretStr = Field(default="")
 
