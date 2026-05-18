@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import datetime, timezone, timedelta
 
 import structlog
@@ -49,11 +50,20 @@ class ScorerAgent:
         await bus.start_listening()
         log.info("scorer_agent.listening", channel=Channel.DETECTOR_SCORED_TOKEN)
 
+        heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
         try:
             while True:
                 await asyncio.sleep(60)
         except asyncio.CancelledError:
+            heartbeat_task.cancel()
             await bus.disconnect()
+
+    async def _heartbeat_loop(self) -> None:
+        while True:
+            await asyncio.sleep(60)
+            if bus._client:
+                await bus._client.setex("scorer:heartbeat", 180, str(int(time.time())))
 
     async def _handle_scored_token(self, payload: dict) -> None:
         try:
