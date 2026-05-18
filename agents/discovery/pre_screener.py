@@ -9,6 +9,7 @@ MARKET_CAP_MAX_USD = 100_000_000  # $100M máximo — criminal pumps ocurren en 
 VOLUME_TO_MCAP_RATIO_MIN = 0.03   # al menos 3% de mcap en volumen diario
 TOKEN_AGE_MAX_DAYS = 730          # tokens con menos de 2 años (más volátiles)
 PRICE_CHANGE_MAX_24H_PCT = 50     # evitar tokens ya en pump activo
+PRICE_MAX_USD = 100.0             # criminal pumps ocurren en tokens de precio bajo
 
 # Filtros por volumen cuando no hay datos de CoinGecko
 VOLUME_MIN_USD_FALLBACK = 100_000  # $100k mínimo diario (evita tokens muertos)
@@ -21,12 +22,14 @@ LARGE_CAP_BLACKLIST: set[str] = {
     "DOT", "MATIC", "LINK", "UNI", "LTC", "BCH", "ATOM", "XLM", "TON",
     "ALGO", "VET", "FIL", "THETA", "ETC", "XMR", "HBAR", "NEAR", "SHIB",
     "FTM", "SAND", "MANA", "AXS", "GALA", "ENJ", "SUI", "APT", "INJ",
-    # Activos de commodities tokenizados
-    "XAUT", "PAXG", "GOLD", "SILVER",
+    # Commodities tokenizados — formas simples y compuestas (ej. GOLD(PAXG))
+    "XAUT", "PAXG", "GOLD", "SILVER", "CACHE", "DGX", "SLVT", "SLVX", "OIL",
+    "GOLD(PAXG)", "GOLD(XAUT)",
     # Wrapped / staked
-    "WBTC", "STETH", "WETH", "CBBTC",
+    "WBTC", "STETH", "WETH", "CBBTC", "WBNB",
     # Stablecoins
     "USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USDD", "USDP",
+    "GUSD", "FRAX",
 }
 
 
@@ -38,6 +41,7 @@ class PreScreener:
         volume_ratio_min: float = VOLUME_TO_MCAP_RATIO_MIN,
         age_max_days: int = TOKEN_AGE_MAX_DAYS,
         price_change_max: float = PRICE_CHANGE_MAX_24H_PCT,
+        price_max_usd: float = PRICE_MAX_USD,
         blacklist: set[str] | None = None,
     ) -> None:
         self.mcap_min = mcap_min
@@ -45,6 +49,7 @@ class PreScreener:
         self.volume_ratio_min = volume_ratio_min
         self.age_max_days = age_max_days
         self.price_change_max = price_change_max
+        self.price_max_usd = price_max_usd
         self.blacklist: set[str] = blacklist or set()
 
     def screen(self, tokens: list[TokenData]) -> tuple[list[TokenData], dict[str, str]]:
@@ -70,9 +75,13 @@ class PreScreener:
         if t.symbol in self.blacklist:
             return "blacklist"
 
-        # Siempre excluir tokens de gran cap conocidos
+        # Siempre excluir tokens de gran cap conocidos (incluyendo símbolos compuestos)
         if t.symbol in LARGE_CAP_BLACKLIST:
             return "large_cap_known"
+
+        # Filtro por precio unitario — criminal pumps ocurren en tokens de precio bajo
+        if t.current_price is not None and t.current_price > self.price_max_usd:
+            return f"price_too_high:{t.current_price:.2f}"
 
         # Modo CoinGecko: usar market cap y ratio de volumen
         if t.market_cap_usd is not None:

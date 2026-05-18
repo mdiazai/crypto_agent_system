@@ -24,9 +24,11 @@ EXCLUDED_SYMBOLS: set[str] = {
     "DOT", "MATIC", "LINK", "UNI", "LTC", "BCH", "ATOM", "XLM", "TON",
     "ALGO", "VET", "FIL", "THETA", "ETC", "XMR", "HBAR", "NEAR", "SHIB",
     "FTM", "SAND", "MANA", "AXS", "GALA", "ENJ", "SUI", "APT", "INJ",
-    "XAUT", "PAXG", "GOLD", "SILVER",
-    "WBTC", "STETH", "WETH", "CBBTC",
+    "XAUT", "PAXG", "GOLD", "SILVER", "CACHE", "DGX", "SLVT", "SLVX", "OIL",
+    "GOLD(PAXG)", "GOLD(XAUT)",
+    "WBTC", "STETH", "WETH", "CBBTC", "WBNB",
     "USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USDD", "USDP",
+    "GUSD", "FRAX",
 }
 
 # ── Prometheus metrics ────────────────────────────────────────────────────────
