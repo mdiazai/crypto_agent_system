@@ -28,7 +28,9 @@ EXCLUDED_SYMBOLS: set[str] = {
     "GOLD(PAXG)", "GOLD(XAUT)",
     "WBTC", "STETH", "WETH", "CBBTC", "WBNB",
     "USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USDD", "USDP",
-    "GUSD", "FRAX",
+    "GUSD", "FRAX", "USD1",
+    # Privacy coins large-cap
+    "ZEC", "DASH", "XMR",
 }
 
 # ── Prometheus metrics ────────────────────────────────────────────────────────

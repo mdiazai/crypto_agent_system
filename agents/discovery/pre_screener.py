@@ -29,7 +29,9 @@ LARGE_CAP_BLACKLIST: set[str] = {
     "WBTC", "STETH", "WETH", "CBBTC", "WBNB",
     # Stablecoins
     "USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USDD", "USDP",
-    "GUSD", "FRAX",
+    "GUSD", "FRAX", "USD1",
+    # Privacy coins large-cap
+    "ZEC", "DASH", "XMR",
 }
 
 
