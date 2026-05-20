@@ -1688,3 +1688,68 @@ monitor_agent.cycle_done: tokens=215, published=209, errors=0, duration=59.8s
 
 Pushed a `origin/main`. VPS actualizado con `git pull`, migración manual vía psql,
 `docker compose build discovery monitor && docker compose up -d discovery monitor`.
+
+---
+
+## Sesión 2026-05-20 — Fix ALERT_THRESHOLD, diagnóstico MAX_HOLD y blacklist USD1/ZEC
+
+### PROBLEMA 1 — ALERT_THRESHOLD no persistía
+
+**Causa raíz:** `docker-compose.yml` tenía en `x-common-env` tres variables hardcodeadas:
+```yaml
+environment:
+  - ALERT_THRESHOLD=60
+  - TELEGRAM_BOT_TOKEN=8766465123:AAEgGeCp-ZIEfmB2uPUpwDfBRRHgJNCU_5U
+  - MAX_HOLD_HOURS=72
+```
+En Docker Compose, `environment:` sobreescribe `env_file:` para las mismas variables.
+Cambiar el `.env` del VPS no tenía efecto — el compose siempre forzaba los valores hardcodeados.
+
+**Fix:** eliminadas las tres líneas del compose. El `.env` del VPS es ahora la única
+fuente de verdad para estas variables.
+
+**Resultado:** `docker compose exec scorer env | grep ALERT_THRESHOLD` → `ALERT_THRESHOLD=55` ✓
+
+### PROBLEMA 2 — TRIA más de 48h abierto
+
+**Diagnóstico:** TRIA llevaba 63.6h abierto. MAX_HOLD = 72h → faltan ~8.4h para el cierre.
+No había bug. El código de `should_max_hold_exit()` es correcto:
+```python
+hold_hours = (datetime.now(timezone.utc) - opened).total_seconds() / 3600
+return hold_hours >= settings.max_hold_hours  # 63.6 >= 72 → False
+```
+Cierre automático estimado: ~11:30 UTC 2026-05-20.
+
+### PROBLEMA 3 — AIGENSYN alertado con 28 pts (premisa incorrecta)
+
+**Diagnóstico real:** `SELECT token_symbol, score FROM alerts ORDER BY sent_at DESC LIMIT 10`
+mostró que AIGENSYN tenía **61.16 pts** (no 28). La alerta era legítima con el umbral anterior de 60.
+
+**Bugs reales encontrados:**
+1. **Scorer nunca fue reconstruido** — `docker compose restart scorer` usa imagen cacheada.
+   El código con `GOLD(PAXG)` en `EXCLUDED_SYMBOLS` no estaba en la imagen → GOLD(PAXG)
+   seguía alertando pese a estar en la lista.
+2. **USD1** (stablecoin de Trump/World Liberty Financial) no estaba en la blacklist.
+3. **ZEC** (Zcash, large-cap privacy coin) no estaba en la blacklist.
+
+**Fix:**
+- `pre_screener.py`: agregados `USD1`, `ZEC`, `DASH` a `LARGE_CAP_BLACKLIST`
+- `scorer_agent.py`: agregados los mismos a `EXCLUDED_SYMBOLS`
+- Scorer reconstruido con `docker compose build scorer && docker compose up -d --no-deps scorer`
+
+### Lección aprendida
+
+`docker compose restart <service>` NO aplica cambios de código — solo reinicia el container
+con la imagen existente. Para aplicar código nuevo:
+```bash
+docker compose build <service> && docker compose up -d --no-deps <service>
+```
+
+### Commits
+
+```
+6ccb620 fix: eliminar overrides hardcodeados de docker-compose.yml
+c95b5e2 fix: agregar USD1 y ZEC a blacklist (pre_screener + scorer)
+```
+
+Pushed a `origin/main`. VPS actualizado: scorer y discovery reconstruidos y operativos.
