@@ -5,9 +5,6 @@ x-common-env: &common-env
   environment:
     - DATABASE_URL=${DATABASE_URL}
     - REDIS_URL=${REDIS_URL}
-    - ALERT_THRESHOLD=60
-    - TELEGRAM_BOT_TOKEN=8766465123:AAEgGeCp-ZIEfmB2uPUpwDfBRRHgJNCU_5U
-    - MAX_HOLD_HOURS=72
 
 x-restart-policy: &restart-policy
   restart: unless-stopped
