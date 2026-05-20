@@ -248,8 +248,11 @@ class ExecutorAgent:
                     )
 
     async def _check_position(self, pos: PositionState) -> None:
+        # MAX_HOLD se evalúa primero — no depende del precio actual.
+        # Un token delisted o sin liquidez igual debe cerrarse por timeout.
+        max_hold_triggered = self._risk.should_max_hold_exit(pos)
+
         # Intentar precio en el exchange primario; si falla, intentar el fallback.
-        # Sin precio no se pueden verificar SL ni TP — se loguea y se omite el ciclo.
         _FALLBACK = {"mexc": "bitget", "bitget": "mexc"}
         current_price: float | None = None
         for attempt_exchange in (pos.exchange, _FALLBACK.get(pos.exchange, "")):
@@ -267,6 +270,18 @@ class ExecutorAgent:
                 )
 
         if current_price is None:
+            if max_hold_triggered:
+                # Token delisted/sin precio pero expiró el timeout → cerrar a precio de entrada
+                log.warning(
+                    "executor_agent.max_hold_exit_no_price",
+                    symbol=pos.symbol,
+                    exchange=pos.exchange,
+                    note="cerrando a entry_price por falta de precio de mercado",
+                )
+                await self._execute_sell(
+                    pos, pos.remaining_quantity, pos.entry_price, "sell_max_hold", "max_hold_timeout"
+                )
+                return
             log.error(
                 "executor_agent.price_unavailable",
                 symbol=pos.symbol,
@@ -275,7 +290,7 @@ class ExecutorAgent:
             return
 
         # ── Max Hold Time ─────────────────────────────────────────────────────
-        if self._risk.should_max_hold_exit(pos):
+        if max_hold_triggered:
             log.warning(
                 "executor_agent.max_hold_exit",
                 symbol=pos.symbol,
