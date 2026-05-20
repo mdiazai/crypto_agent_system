@@ -27,6 +27,7 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - [x] Fase 11 — Frontend/UI del Dashboard (HTML + Chart.js + Alpine.js, puerto 8001)
 - [x] Fase 12 — Pantalla Performance (GET /performance/metrics + performance.html)
 - [x] Fase 13 — On-chain multi-fuente: Coinglass + Etherscan + CryptoQuant
+- [x] Fase 14 — Holder concentration multi-chain: BSCScan (BEP-20) + Helius (Solana SPL)
 
 ## Reglas globales
 - Todo el código debe ser async
@@ -44,15 +45,16 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - SSH:           ssh root@167.88.33.68
 - Instancia local: APAGADA (docker compose down ejecutado 2026-05-17)
 
-## Configuración activa (2026-05-18)
+## Configuración activa (2026-05-19)
 - ALERT_THRESHOLD=60 (sincronizado en .env del VPS)
 - MAX_HOLD_HOURS=72 (agregado al .env del VPS)
 - PRICE_MAX_USD=100 (filtro nuevo en pre_screener — tokens >$100 excluidos)
 - INFLOW_THRESHOLD_USD=200000
 - TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID=6517856768 en .env del VPS
 - Máx score teórico real ≈ 67.5 pts (sin Coinglass/derivados)
+- BSCSCAN_API_KEY y HELIUS_API_KEY: opcionales, pendiente configurar en .env del VPS
 
-## Estado operativo (2026-05-18)
+## Estado operativo (2026-05-19)
 - Sistema corriendo en VPS 24/7 con restart: unless-stopped en todos los servicios
 - DB nueva en VPS — sin historial de trades previos
 - Pipeline: Discovery → Monitor → Detector → Scorer → Executor operativo
@@ -65,8 +67,12 @@ CCXT (MEXC + Bitget), Claude API, Docker
   - Símbolos agregados: GOLD(PAXG), GOLD(XAUT), CACHE, DGX, SLVT, SLVX, OIL, WBNB, GUSD, FRAX
   - Root cause GOLD(PAXG): símbolo compuesto no matcheaba blacklist exacta → corregido
 - Claude Advisor: claude-sonnet-4-6
+- Monitor: 215 tokens/ciclo, 209 publicados, 0 errores, ~60s/ciclo
+- Holder concentration: Etherscan (ERC-20), BSCScan (BEP-20), Helius (Solana SPL) — activos si API key configurada
+- Migración 0006: columna `chain` en token_candidates (aplicada manualmente vía psql)
 
 ## Próximos pasos
+- Configurar BSCSCAN_API_KEY y HELIUS_API_KEY en .env del VPS para activar holder data en BEP-20/Solana
 - Monitorear primeras señales reales en el VPS (scorer y learner en "unknown" hasta primer trade)
 - Validar que Telegram envía alertas correctamente desde el VPS
 - Validar que el Learner procesa trades cerrados cuando se acumulen datos
@@ -77,16 +83,18 @@ CCXT (MEXC + Bitget), Claude API, Docker
 ## Knowns issues / limitaciones
 - Coinglass devuelve HTTP 500 en todos los endpoints → lp_holder y cl_short = 0 pts siempre
 - Sin derivados, máx score alcanzable ≈ 67.5 pts (inflow 40 + precio 20 + funding neutro 7.5)
-- Etherscan solo cubre tokens ERC-20 en Ethereum; BEP-20/Solana/etc → holders N/D
+- Holder concentration: activo para ERC-20 (Etherscan); BEP-20/Solana requieren API keys adicionales
 - CoinGecko free tier se rate-limita (429) en discovery → algunas páginas se pierden
 - Circuit breaker system alert: executor publica en `channel:detector:scored_token` → se recibe a sí mismo, falla parse como ScoredToken → warning `invalid_payload` (no crítico)
 - Scorer: Telegram es best-effort; si falla, loguea y continúa guardando en DB + marcando `alert_sent=True`
+- Migración 0006: no se aplicó automáticamente (imagen orchestrator cacheada). Workaround: aplicar via psql manual + UPDATE alembic_version
 
 ## Schema DB
 **token_candidates** — columnas añadidas post-init:
 - `volume_24h_usd` — migración 0002
 - `score_breakdown` TEXT JSON — migración 0003
 - `contract_address` TEXT — migración 0004
+- `chain` VARCHAR(16) — migración 0006 ("evm" | "solana" | NULL)
 
 **trades** — columnas añadidas post-init:
 - `anticipation_minutes` FLOAT — migración 0005 (calculado al abrir: entry_time − MIN(alert.sent_at))

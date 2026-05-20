@@ -1581,3 +1581,110 @@ pre_screener.done: total=2097, passing=203, rejected=1894
 ```
 
 Pushed a `origin/main`. VPS actualizado con `git pull && docker compose restart discovery scorer`.
+
+---
+
+## Sesión 2026-05-19 — Multi-chain holder concentration: BSCScan + Helius + Solana
+
+### Contexto
+
+Los holder_signal points del score siempre valían 0 porque `holder_top10_pct` era siempre
+`None` en el `TokenSnapshot`. La causa: `DataFetcher` llamaba a `get_holder_count()` (devuelve
+el número de holders, no el porcentaje top-10) en lugar de `get_holder_concentration()`. Además,
+Etherscan solo cubría ERC-20 en Ethereum — tokens BEP-20 (BNB Chain) y SPL (Solana) quedaban
+sin datos.
+
+### Cambios implementados
+
+**`shared/config/settings.py`**
+- Nuevas variables: `bscscan_api_key: SecretStr = Field(default="")` y
+  `helius_api_key: SecretStr = Field(default="")`
+
+**`agents/monitor/onchain_client.py`** — reescrito con dos nuevas fuentes:
+
+- `BSCScanClient`: llama `tokenholderlist` (top 10) + `tokensupply` de la API de BSCScan.
+  Calcula `sum(top10) / total_supply * 100`. Activado si `BSCSCAN_API_KEY` está presente.
+
+- `HeliusClient`: usa JSON-RPC (`getTokenLargestAccounts` + `getTokenSupply`) sobre el
+  endpoint Helius RPC. Activado si `HELIUS_API_KEY` está presente.
+
+- `_detect_chain(contract_address)`: función de utilidad que detecta la chain por formato
+  del contrato — `0x` + 42 chars → `"evm"`, 32-50 chars base58 → `"solana"`.
+
+- `OnchainClient.get_holder_concentration()`: ahora retorna `tuple[Optional[float], Optional[str]]`
+  — `(pct_top10, source_name)`. Orden de intento: Etherscan → BSCScan para EVM,
+  Helius para Solana.
+
+**`agents/monitor/schemas.py`**
+- `TokenSnapshot`: nuevo campo `holder_source: Optional[str] = None`
+
+**`agents/monitor/data_fetcher.py`**
+- `fetch_all()`: firma actualizada con `chain: Optional[str] = None`
+- Llama a `get_holder_concentration(contract_address, chain)` en lugar de `get_holder_count()`
+- Desempaqueta el resultado: `holder_top10_pct, holder_source = holder_result if isinstance(holder_result, tuple) else (None, None)`
+- `TokenSnapshot` ahora se construye con `holder_top10_pct=holder_top10_pct, holder_source=holder_source`
+
+**`agents/discovery/schemas.py`**
+- `TokenData`: nuevo campo `chain: Optional[str] = None`
+
+**`agents/discovery/exchange_scanner.py`**
+- `get_eth_contracts()`: ahora busca también `platforms.get("solana")` y retorna
+  `dict[str, tuple[str, str]]` — `(address, chain)` en lugar de solo `str`
+
+**`agents/discovery/discovery_agent.py`**
+- Desempaqueta `(address, chain)` del resultado de `get_eth_contracts()`
+- Almacena `chain` en DB junto con `contract_address` al upsert
+
+**`agents/monitor/monitor_agent.py`**
+- SELECT incluye `TokenCandidate.chain`
+- Pasa `chain` a `_fetch_and_publish()` → `fetch_all()`
+
+**`agents/detector/schemas.py`**
+- `ScoredToken`: nuevo campo `holder_source: Optional[str] = None`
+
+**`agents/detector/score_engine.py`**
+- Propaga `holder_source=snapshot.holder_source` al construir `ScoredToken`
+
+**`agents/scorer/message_formatter.py`**
+- Ahora muestra la fuente: `"Holders TOP10: 73% (BSCScan)"` en lugar de solo `"73%"`
+
+**`shared/models/token_candidate.py`**
+- Nuevo campo `chain: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)`
+
+**`alembic/versions/0006_add_chain_to_token_candidates.py`** (nueva migración)
+- `ALTER TABLE token_candidates ADD COLUMN IF NOT EXISTS chain VARCHAR(16)`
+
+### Deploy en VPS
+
+La migración 0006 no se aplicó automáticamente (imagen del orchestrator cacheada del build
+anterior). Se aplicó manualmente vía psql:
+
+```sql
+ALTER TABLE token_candidates ADD COLUMN IF NOT EXISTS chain VARCHAR(16);
+UPDATE alembic_version SET version_num = '0006';
+```
+
+Confirmado: `version_num = '0006'`, columna `chain` presente.
+
+Discovery y monitor reconstruidos con `docker compose build discovery monitor && docker compose up -d`:
+```
+monitor_agent.cycle_done: tokens=215, published=209, errors=0, duration=59.8s
+```
+
+### Estado al finalizar
+
+- 12 containers Up, todos con código nuevo
+- Migración 0006 aplicada — columna `chain` en token_candidates
+- Pipeline operativo: 215 tokens chequeados por ciclo, 0 errores
+- Holder concentration: activo para EVM vía Etherscan (si API key configurada);
+  BSCScan y Helius disponibles si se agregan sus keys al .env del VPS
+- Telegram operativo: alertas en `"Holders TOP10: X% (fuente)"` cuando haya datos
+
+### Commits
+
+```
+132869c feat: multi-chain holder concentration (BSCScan + Helius + Solana)
+```
+
+Pushed a `origin/main`. VPS actualizado con `git pull`, migración manual vía psql,
+`docker compose build discovery monitor && docker compose up -d discovery monitor`.
