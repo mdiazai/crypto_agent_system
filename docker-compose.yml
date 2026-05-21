@@ -5,6 +5,9 @@ x-common-env: &common-env
   environment:
     - DATABASE_URL=${DATABASE_URL}
     - REDIS_URL=${REDIS_URL}
+    - ETHERSCAN_API_KEY=${ETHERSCAN_API_KEY}
+    - HELIUS_API_KEY=${HELIUS_API_KEY}
+    - BSCSCAN_API_KEY=${BSCSCAN_API_KEY}
 
 x-restart-policy: &restart-policy
   restart: unless-stopped
