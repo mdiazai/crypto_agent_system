@@ -209,7 +209,7 @@ class BSCScanClient:
         self._api_key = settings.bscscan_api_key.get_secret_value()
         self._available = bool(self._api_key)
         if not self._available:
-            log.info("bscscan.no_api_key", msg="BEP-20 holder data disabled — set BSCSCAN_API_KEY")
+            log.debug("bscscan.no_api_key", msg="BEP-20 holder data disabled — set BSCSCAN_API_KEY")
 
     async def get_holder_concentration(self, contract_address: str) -> Optional[float]:
         """% del supply en top-10 wallets para un BEP-20."""
