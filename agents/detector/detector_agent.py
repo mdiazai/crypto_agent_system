@@ -100,6 +100,7 @@ class DetectorAgent:
                         inflow_usd=scored.inflow_4h_usd,
                         volume_24h_usd=scored.volume_24h_usd,
                         score_breakdown=breakdown_json,
+                        holder_concentration_pct=scored.holder_top10_pct,
                     )
                 )
         except Exception as e:
