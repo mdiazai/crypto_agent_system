@@ -6,13 +6,14 @@ Uso:
   docker exec crypto_agent_system-discovery-1 python scripts/backfill_contracts.py
 """
 import asyncio
+import os
 import sys
 
 import httpx
 
 sys.path.insert(0, "/app")
 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, text
 
 from shared.models import TokenCandidate, TokenStatus, get_session
 
@@ -88,7 +89,18 @@ async def get_platforms(client: httpx.AsyncClient, coin_id: str) -> dict:
 
 
 async def main() -> None:
-    # 1. Tokens activos sin contrato
+    # ── Diagnóstico de conexión ───────────────────────────────────────────────
+    db_url = os.getenv("DATABASE_URL", "NO CONFIGURADA")
+    print(f"DATABASE_URL: {db_url[:40]}...")
+
+    async with get_session() as session:
+        count_result = await session.execute(
+            text("SELECT COUNT(*) FROM token_candidates WHERE status = 'active'")
+        )
+        total_activos = count_result.scalar()
+    print(f"Tokens activos en DB al inicio: {total_activos}")
+
+    # ── 1. Tokens activos sin contrato ────────────────────────────────────────
     async with get_session() as session:
         rows = (
             await session.execute(
@@ -99,7 +111,7 @@ async def main() -> None:
         ).all()
 
     total = len(rows)
-    print(f"Tokens a procesar: {total}\n")
+    print(f"Tokens a procesar (sin contrato): {total}\n")
     con_datos = sin_datos = 0
 
     async with httpx.AsyncClient() as client:
@@ -137,18 +149,33 @@ async def main() -> None:
                 sin_datos += 1
                 continue
 
-            # Paso D — actualizar DB
+            # Paso D — actualizar DB con commit explícito y verificación de rowcount
             async with get_session() as session:
-                await session.execute(
+                result = await session.execute(
                     update(TokenCandidate)
                     .where(TokenCandidate.id == row.id)
                     .values(contract_address=contract, chain=chain_value)
                 )
+                await session.commit()
+                rowcount = result.rowcount
 
-            print(f"[{i}/{total}] {row.symbol}: chain={chain_value} contract={contract[:14]}...")
+            if rowcount == 0:
+                print(f"[{i}/{total}] {row.symbol}: ADVERTENCIA — UPDATE no afectó ninguna fila (id={row.id})")
+                sin_datos += 1
+                continue
+
+            print(f"[{i}/{total}] {row.symbol}: chain={chain_value} contract={contract[:14]}... (filas={rowcount})")
             con_datos += 1
 
-    print(f"\nCompletado: {con_datos} tokens con contrato, {sin_datos} sin datos en CoinGecko")
+    # ── Verificación final ────────────────────────────────────────────────────
+    async with get_session() as session:
+        final_result = await session.execute(
+            text("SELECT COUNT(*) FROM token_candidates WHERE contract_address IS NOT NULL")
+        )
+        final_count = final_result.scalar()
+
+    print(f"\nCompletado: {con_datos} guardados, {sin_datos} sin datos")
+    print(f"VERIFICACION FINAL: {final_count} tokens con contract_address en DB")
 
 
 if __name__ == "__main__":
