@@ -30,11 +30,12 @@ def _detect_chain(contract_address: str) -> str:
     """Detecta la chain de un token por el formato del contrato."""
     if not contract_address:
         return "unknown"
-    if contract_address.startswith("0x") and len(contract_address) == 42:
-        return "evm"  # Ethereum o BSC — se intentan ambos
-    # Solana: base58, 32-50 chars, sin prefijo 0x
-    if 32 <= len(contract_address) <= 50 and not contract_address.startswith("0x"):
+    # Solana: base58, >= 32 chars, sin prefijo 0x
+    if not contract_address.startswith("0x") and len(contract_address) >= 32:
         return "solana"
+    # EVM: empieza con 0x y tiene exactamente 42 chars
+    if contract_address.startswith("0x") and len(contract_address) == 42:
+        return "evm"
     return "unknown"
 
 

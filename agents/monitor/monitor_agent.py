@@ -16,6 +16,19 @@ from .schemas import TokenSnapshot, MonitorCycleResult
 
 log = structlog.get_logger(__name__)
 
+
+def _effective_chain(contract_address: str | None, chain: str | None) -> str | None:
+    """Devuelve chain si ya está definida; si no, la infiere del formato del contrato."""
+    if chain and chain not in ("unknown", ""):
+        return chain
+    if contract_address:
+        if contract_address.startswith("0x") and len(contract_address) == 42:
+            return "evm"
+        if not contract_address.startswith("0x") and len(contract_address) >= 32:
+            return "solana"
+    return chain
+
+
 # ── Prometheus metrics ────────────────────────────────────────────────────────
 TOKENS_CHECKED = Counter("monitor_tokens_checked_total", "Total individual token checks")
 API_ERRORS = Counter("monitor_api_errors_total", "Failed data fetches", ["reason"])
@@ -78,7 +91,12 @@ class MonitorAgent:
             ).all()
 
         active_tokens = [
-            {"symbol": r.symbol, "exchange": r.exchange, "contract_address": r.contract_address, "chain": r.chain}
+            {
+                "symbol": r.symbol,
+                "exchange": r.exchange,
+                "contract_address": r.contract_address,
+                "chain": _effective_chain(r.contract_address, r.chain),
+            }
             for r in rows
         ]
         result.tokens_checked = len(active_tokens)
