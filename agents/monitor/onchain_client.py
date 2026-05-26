@@ -277,6 +277,69 @@ class BscClient:
             return None
 
 
+# ── Moralis (EVM holder concentration) ───────────────────────────────────────
+
+class MoralisClient:
+    """Holder concentration via Moralis Deep Index API.
+    Free tier: 40,000 req/mes. Endpoint: GET /erc20/{address}/owners
+    """
+
+    BASE      = "https://deep-index.moralis.io/api/v2.2"
+    _CHAIN_ETH = "eth"
+    _CHAIN_BSC = "0x38"   # BNB Chain hex chainId
+
+    def __init__(self) -> None:
+        self._api_key = settings.moralis_api_key.get_secret_value()
+        self._available = bool(self._api_key)
+        if not self._available:
+            log.info("moralis.no_api_key",
+                     msg="Holder concentration disabled — set MORALIS_API_KEY")
+
+    async def _fetch(self, contract_address: str, chain: str) -> Optional[float]:
+        """Llama al endpoint para una chain específica."""
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"{self.BASE}/erc20/{contract_address}/owners",
+                    headers={"X-API-Key": self._api_key},
+                    params={"chain": chain, "limit": 10, "order": "DESC"},
+                    timeout=12,
+                )
+            if resp.status_code == 401:
+                log.warning("moralis.unauthorized",
+                            msg="Invalid API key — check MORALIS_API_KEY")
+                return None
+            if resp.status_code >= 400:
+                log.debug("moralis.http_error", status=resp.status_code, chain=chain)
+                return None
+            holders = resp.json().get("result", [])
+            if not holders:
+                return None
+            if "percentage_relative_to_total_supply" in holders[0]:
+                return round(
+                    sum(float(h.get("percentage_relative_to_total_supply") or 0)
+                        for h in holders[:10]),
+                    2,
+                )
+            log.debug("moralis.no_percentage_field", chain=chain)
+            return None
+        except httpx.TimeoutException:
+            log.debug("moralis.timeout", contract=contract_address, chain=chain)
+            return None
+        except Exception:
+            log.debug("moralis.failed", contract=contract_address, chain=chain)
+            return None
+
+    async def get_holder_concentration(self, contract_address: str) -> Optional[float]:
+        """Intenta Ethereum, luego BNB Chain. Retorna % top-10 o None."""
+        if not self._available or not contract_address:
+            return None
+        pct = await self._fetch(contract_address, self._CHAIN_ETH)
+        if pct is not None:
+            return pct
+        return await self._fetch(contract_address, self._CHAIN_BSC)
+
+
 # ── Helius (Solana) ───────────────────────────────────────────────────────────
 
 class HeliusClient:
@@ -361,10 +424,11 @@ class CryptoQuantClient:
 # ── Fachada unificada ─────────────────────────────────────────────────────────
 
 class OnchainClient:
-    """Combina Coinglass + Etherscan V2 + BscClient + Helius + CryptoQuant."""
+    """Combina Coinglass + Moralis + Etherscan V2 + BscClient + Helius + CryptoQuant."""
 
     def __init__(self) -> None:
         self.coinglass   = CoinglassClient()
+        self.moralis     = MoralisClient()
         self.etherscan   = EtherscanClient()
         self.bsc         = BscClient()
         self.helius      = HeliusClient()
@@ -401,10 +465,15 @@ class OnchainClient:
             return (pct, "Helius") if pct is not None else (None, None)
 
         if detected == "evm":
-            # Intentar Ethereum (chainid=1) primero, luego BNB Chain (chainid=56)
+            # 1. Moralis: concentration real (top-10 % de supply)
+            pct = await self.moralis.get_holder_concentration(contract_address)
+            if pct is not None:
+                return pct, "Moralis"
+            # 2. Etherscan V2 chainid=1 (Pro endpoint — retornará None en free tier)
             pct = await self.etherscan.get_holder_concentration(contract_address)
             if pct is not None:
                 return pct, "Etherscan"
+            # 3. BSC chainid=56
             pct = await self.bsc.get_holder_concentration(contract_address)
             if pct is not None:
                 return pct, "BSC"

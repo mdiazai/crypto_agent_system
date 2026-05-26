@@ -1,5 +1,5 @@
 """
-Test directo de Etherscan V2 — verifica que la API key funciona con V2.
+Test de Moralis holder concentration + Etherscan count fallback.
 
 Uso:
   docker exec -i crypto_agent_system-monitor-1 python - < /opt/crypto_agent_system/scripts/test_etherscan.py
@@ -12,63 +12,67 @@ import httpx
 
 sys.path.insert(0, "/app")
 
-ETHERSCAN_V2 = "https://api.etherscan.io/v2/api"
-USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+MORALIS_BASE  = "https://deep-index.moralis.io/api/v2.2"
+ETHERSCAN_V2  = "https://api.etherscan.io/v2/api"
+USDC          = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 
 
 async def test() -> None:
-    api_key = os.getenv("ETHERSCAN_API_KEY", "")
-    print(f"ETHERSCAN_API_KEY: {api_key[:10]}...")
+    moralis_key   = os.getenv("MORALIS_API_KEY", "")
+    etherscan_key = os.getenv("ETHERSCAN_API_KEY", "")
+    print(f"MORALIS_API_KEY:   {moralis_key[:15]}...")
+    print(f"ETHERSCAN_API_KEY: {etherscan_key[:10]}...")
 
     async with httpx.AsyncClient() as client:
 
-        print("\n--- tokenholderlist Ethereum chainid=1 ---")
-        r = await client.get(ETHERSCAN_V2, params={
-            "chainid": 1,
-            "module": "token", "action": "tokenholderlist",
-            "contractaddress": USDC, "page": 1, "offset": 10,
-            "apikey": api_key,
-        }, timeout=15)
-        data = r.json()
-        print(f"  status:  {data.get('status')}")
-        print(f"  message: {data.get('message')}")
-        result = data.get("result")
-        if isinstance(result, str):
-            print(f"  result:  {result[:80]}")
-        elif isinstance(result, list):
-            print(f"  result:  [{len(result)} holders]  ← OK")
+        print(f"\n--- Moralis /erc20/{USDC[:10]}…/owners (chain=eth) ---")
+        r = await client.get(
+            f"{MORALIS_BASE}/erc20/{USDC}/owners",
+            headers={"X-API-Key": moralis_key},
+            params={"chain": "eth", "limit": 10, "order": "DESC"},
+            timeout=15,
+        )
+        print(f"  HTTP {r.status_code}")
+        if r.status_code == 200:
+            holders = r.json().get("result", [])
+            print(f"  holders returned: {len(holders)}")
+            if holders:
+                first = holders[0]
+                pct_field = first.get("percentage_relative_to_total_supply")
+                print(f"  percentage_relative_to_total_supply: {pct_field}")
+                total_pct = sum(
+                    float(h.get("percentage_relative_to_total_supply") or 0)
+                    for h in holders[:10]
+                )
+                print(f"  sum top-10 pct: {round(total_pct, 2)}%  ← holder_concentration_pct")
+        else:
+            print(f"  error: {r.text[:120]}")
 
-        print("\n--- tokensupply Ethereum chainid=1 ---")
+        print(f"\n--- Etherscan tokeninfo (holdersCount fallback) ---")
         r2 = await client.get(ETHERSCAN_V2, params={
-            "chainid": 1,
-            "module": "stats", "action": "tokensupply",
-            "contractaddress": USDC,
-            "apikey": api_key,
+            "chainid": 1, "module": "token", "action": "tokeninfo",
+            "contractaddress": USDC, "apikey": etherscan_key,
         }, timeout=15)
         data2 = r2.json()
         print(f"  status:  {data2.get('status')}")
         print(f"  message: {data2.get('message')}")
-        print(f"  result:  {str(data2.get('result', ''))[:30]}")
+        result2 = data2.get("result", [])
+        if isinstance(result2, list) and result2:
+            print(f"  holdersCount: {result2[0].get('holdersCount', 'N/A')}")
+        else:
+            print(f"  result: {str(result2)[:80]}")
 
-        print("\n--- tokeninfo Ethereum chainid=1 ---")
-        r3 = await client.get(ETHERSCAN_V2, params={
-            "chainid": 1,
-            "module": "token", "action": "tokeninfo",
-            "contractaddress": USDC,
-            "apikey": api_key,
-        }, timeout=15)
-        data3 = r3.json()
-        print(f"  status:  {data3.get('status')}")
-        print(f"  message: {data3.get('message')}")
-        result3 = data3.get("result", [])
-        if isinstance(result3, list) and result3:
-            print(f"  holdersCount: {result3[0].get('holdersCount', 'N/A')}")
-
-    print("\n--- OnchainClient.get_holder_concentration (via V2) ---")
+    print(f"\n--- OnchainClient.get_holder_concentration (Moralis → Etherscan) ---")
     from agents.monitor.onchain_client import OnchainClient
     oc = OnchainClient()
     pct, source = await oc.get_holder_concentration(USDC, "evm")
-    print(f"  resultado: ({pct}, '{source}')  (esperado: (float, 'Etherscan'))")
+    print(f"  resultado: ({pct}, '{source}')")
+    print(f"  {'✓ OK' if pct is not None else '✗ FALLO — holder_concentration_pct = None'}")
+
+    print(f"\n--- OnchainClient.get_holder_count (total holders) ---")
+    count = await oc.get_holder_count(USDC)
+    print(f"  holder_count: {count}")
+    print(f"  {'✓ OK' if count is not None else '✗ FALLO — holder_count = None'}")
 
 
 if __name__ == "__main__":

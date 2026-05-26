@@ -111,11 +111,13 @@ class DataFetcher:
             ls_ratio,
             cg_oi,
             holder_result,
+            holder_count,
         ) = await asyncio.gather(
             self._onchain.get_exchange_inflow(symbol),
             self._onchain.get_long_short_ratio(symbol),
             self._onchain.get_open_interest(symbol),
             self._onchain.get_holder_concentration(contract_address, chain),
+            self._onchain.get_holder_count(contract_address),
             return_exceptions=False,
         )
         holder_top10_pct, holder_source = holder_result if isinstance(holder_result, tuple) else (None, None)
@@ -184,7 +186,7 @@ class DataFetcher:
             inflow_24h_usd=volume_usd,
             holder_top10_pct=holder_top10_pct,
             holder_source=holder_source,
-            total_holders=None,
+            total_holders=holder_count,
             funding_rate=funding.get("fundingRate") if funding else None,
             open_interest_usd=oi_usd,
             long_short_ratio=ls_ratio,

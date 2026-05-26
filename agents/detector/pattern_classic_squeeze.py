@@ -16,7 +16,7 @@ def score(snapshot: TokenSnapshot, weights: ScoreWeights) -> PatternBreakdown:
     short_s = _short_interest_signal(snapshot.short_interest_pct) * weights.cl_short_interest
     funding_s = _funding_rate_signal(snapshot.funding_rate) * weights.cl_funding_rate
     inflow_s = _inflow_activator_signal(snapshot.inflow_1h_usd) * weights.cl_inflow
-    holder_s = _strong_holder_signal(snapshot.holder_top10_pct) * weights.cl_holder
+    holder_s = _strong_holder_signal(snapshot.holder_top10_pct, snapshot.total_holders) * weights.cl_holder
 
     normalized = min(100.0, short_s + funding_s + inflow_s + holder_s)
 
@@ -76,14 +76,26 @@ def _inflow_activator_signal(inflow_1h_usd: float | None) -> float:
     return ratio * 12.5
 
 
-def _strong_holder_signal(holder_pct: float | None) -> float:
-    """Máx 15 pts. Manos fuertes = no se rendirán ante el squeeze."""
-    if holder_pct is None:
-        return 0.0
-    if holder_pct >= 70:
-        return 15.0
-    if holder_pct >= 60:
-        return 10.0
-    if holder_pct >= 50:
-        return 5.0
+def _strong_holder_signal(
+    holder_pct: float | None,
+    holder_count: int | None = None,
+) -> float:
+    """Máx 25 pts. Concentración real de Moralis; fallback a conteo total de holders."""
+    if holder_pct is not None:
+        if holder_pct >= 80:
+            return 25.0
+        if holder_pct >= 60:
+            return 18.0
+        if holder_pct >= 40:
+            return 10.0
+        return 3.0
+    # Fallback: pocos holders únicos = token más concentrado = pump más coordinable
+    if holder_count is not None:
+        if holder_count < 500:
+            return 12.0
+        if holder_count < 2_000:
+            return 7.0
+        if holder_count < 10_000:
+            return 3.0
+        return 1.0
     return 0.0
