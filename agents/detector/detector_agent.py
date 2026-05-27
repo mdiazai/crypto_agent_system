@@ -89,19 +89,21 @@ class DetectorAgent:
                 "cl_inflow": scored.classic_squeeze.inflow_signal,
                 "cl_holder": scored.classic_squeeze.holder_signal,
             })
+            update_values: dict = {
+                "detection_score": scored.composite_score,
+                "pattern_type": pattern,
+                "last_checked": datetime.now(timezone.utc),
+                "inflow_usd": scored.inflow_4h_usd,
+                "volume_24h_usd": scored.volume_24h_usd,
+                "score_breakdown": breakdown_json,
+            }
+            if scored.holder_top10_pct is not None:
+                update_values["holder_concentration_pct"] = scored.holder_top10_pct
             async with get_session() as session:
                 await session.execute(
                     update(TokenCandidate)
                     .where(TokenCandidate.symbol == snapshot.symbol)
-                    .values(
-                        detection_score=scored.composite_score,
-                        pattern_type=pattern,
-                        last_checked=datetime.now(timezone.utc),
-                        inflow_usd=scored.inflow_4h_usd,
-                        volume_24h_usd=scored.volume_24h_usd,
-                        score_breakdown=breakdown_json,
-                        holder_concentration_pct=scored.holder_top10_pct,
-                    )
+                    .values(**update_values)
                 )
         except Exception as e:
             log.warning("detector_agent.db_update_failed", symbol=snapshot.symbol, error=str(e))
