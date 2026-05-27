@@ -150,4 +150,19 @@ class MonitorAgent:
             return False
 
         await bus.publish(Channel.MONITOR_PUMP_SIGNAL, snapshot.model_dump())
+
+        if snapshot.holder_top10_pct is not None:
+            async with get_session() as session:
+                await session.execute(
+                    update(TokenCandidate)
+                    .where(TokenCandidate.symbol == symbol)
+                    .where(TokenCandidate.exchange == exchange)
+                    .values(holder_concentration_pct=snapshot.holder_top10_pct)
+                )
+            log.debug(
+                "monitor.holder_saved",
+                symbol=symbol,
+                pct=snapshot.holder_top10_pct,
+            )
+
         return True
