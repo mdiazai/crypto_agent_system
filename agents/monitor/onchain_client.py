@@ -279,12 +279,16 @@ class BscClient:
 
 # ── Moralis (EVM holder concentration) ───────────────────────────────────────
 
+_MORALIS_SEM = asyncio.Semaphore(3)       # max 3 requests simultáneos
+_MORALIS_CACHE_TTL = 21_600               # 6 horas en segundos
+
+
 class MoralisClient:
     """Holder concentration via Moralis Deep Index API.
     Free tier: 40,000 req/mes. Endpoint: GET /erc20/{address}/owners
     """
 
-    BASE      = "https://deep-index.moralis.io/api/v2.2"
+    BASE       = "https://deep-index.moralis.io/api/v2.2"
     _CHAIN_ETH = "eth"
     _CHAIN_BSC = "0x38"   # BNB Chain hex chainId
 
@@ -294,20 +298,36 @@ class MoralisClient:
         if not self._available:
             log.info("moralis.no_api_key",
                      msg="Holder concentration disabled — set MORALIS_API_KEY")
+        self._cache: dict[str, tuple[float, float]] = {}  # contract -> (pct, expiry)
+
+    def _cache_get(self, key: str) -> Optional[float]:
+        entry = self._cache.get(key)
+        if entry and asyncio.get_event_loop().time() < entry[1]:
+            return entry[0]
+        return None
+
+    def _cache_set(self, key: str, value: float) -> None:
+        expiry = asyncio.get_event_loop().time() + _MORALIS_CACHE_TTL
+        self._cache[key] = (value, expiry)
 
     async def _fetch(self, contract_address: str, chain: str) -> Optional[float]:
-        """Llama al endpoint para una chain específica."""
+        """Llama al endpoint para una chain específica (con semáforo y delay)."""
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    f"{self.BASE}/erc20/{contract_address}/owners",
-                    headers={"X-API-Key": self._api_key},
-                    params={"chain": chain, "limit": 10, "order": "DESC"},
-                    timeout=12,
-                )
+            async with _MORALIS_SEM:
+                await asyncio.sleep(1.0)
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        f"{self.BASE}/erc20/{contract_address}/owners",
+                        headers={"X-API-Key": self._api_key},
+                        params={"chain": chain, "limit": 10, "order": "DESC"},
+                        timeout=12,
+                    )
             if resp.status_code == 401:
                 log.warning("moralis.unauthorized",
                             msg="Invalid API key — check MORALIS_API_KEY")
+                return None
+            if resp.status_code == 429:
+                log.warning("moralis.rate_limited", chain=chain)
                 return None
             if resp.status_code >= 400:
                 log.debug("moralis.http_error", status=resp.status_code, chain=chain)
@@ -331,13 +351,23 @@ class MoralisClient:
             return None
 
     async def get_holder_concentration(self, contract_address: str) -> Optional[float]:
-        """Intenta Ethereum, luego BNB Chain. Retorna % top-10 o None."""
+        """Intenta Ethereum, luego BNB Chain. Cache 6h para no exceder rate limit."""
         if not self._available or not contract_address:
             return None
+
+        cached = self._cache_get(contract_address)
+        if cached is not None:
+            return cached
+
         pct = await self._fetch(contract_address, self._CHAIN_ETH)
+        if pct is None:
+            pct = await self._fetch(contract_address, self._CHAIN_BSC)
+
         if pct is not None:
-            return pct
-        return await self._fetch(contract_address, self._CHAIN_BSC)
+            self._cache_set(contract_address, pct)
+            log.debug("moralis.cached", contract=contract_address[:10], pct=pct)
+
+        return pct
 
 
 # ── Helius (Solana) ───────────────────────────────────────────────────────────
