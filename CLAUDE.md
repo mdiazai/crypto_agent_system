@@ -45,51 +45,59 @@ CCXT (MEXC + Bitget), Claude API, Docker
 - SSH:           ssh root@167.88.33.68
 - Instancia local: APAGADA (docker compose down ejecutado 2026-05-17)
 
-## Configuración activa (2026-05-20)
+## Configuración activa (2026-05-28)
 - ALERT_THRESHOLD=55 (en .env del VPS — el compose ya NO tiene override)
 - MAX_HOLD_HOURS=72 (en .env del VPS — el compose ya NO tiene override)
 - PRICE_MAX_USD=100 (filtro en pre_screener — tokens >$100 excluidos)
 - INFLOW_THRESHOLD_USD=200000
 - TELEGRAM_BOT_TOKEN en .env del VPS (el compose ya NO tiene override)
 - Máx score teórico real ≈ 67.5 pts (sin Coinglass/derivados)
-- BSCSCAN_API_KEY y HELIUS_API_KEY: opcionales, pendiente configurar en .env del VPS
+- MORALIS_API_KEY: configurado en .env del VPS (JWT 324 chars, free tier ~40k CU/día)
+- HELIUS_API_KEY: configurado en .env del VPS (Solana SPL holders)
 - FUENTE ÚNICA DE VERDAD: .env del VPS para todas las variables de configuración
+- CRÍTICO: .env del VPS debe tener line endings LF (no CRLF) — usar `sed -i 's/\r//'` si se copia desde Windows
 
-## Estado operativo (2026-05-20)
+## Estado operativo (2026-05-28)
 - Sistema corriendo en VPS 24/7 con restart: unless-stopped en todos los servicios
-- DB nueva en VPS — sin historial de trades previos
 - Pipeline: Discovery → Monitor → Detector → Scorer → Executor operativo
 - Circuit breaker: inactivo
 - Firewall UFW activo: puertos 22, 8001, 8080, 3000 abiertos
-- Discovery: 2097 tokens escaneados, 203 pasan pre_screener (bajó de 589 por filtro precio >$100)
+- Discovery: 2097 tokens escaneados, 203 pasan pre_screener (filtro precio >$100)
 - Executor: monitor de posiciones cada 30s; max hold 72h; price fetch con fallback; capital check
 - Scorer: heartbeat independiente cada 60s (TTL 180s); filtra EXCLUDED_SYMBOLS antes de alertar
 - pre_screener: LARGE_CAP_BLACKLIST extendida + filtro price_max_usd=$100
-  - Símbolos agregados: GOLD(PAXG), GOLD(XAUT), CACHE, DGX, SLVT, SLVX, OIL, WBNB, GUSD, FRAX
-  - Root cause GOLD(PAXG): símbolo compuesto no matcheaba blacklist exacta → corregido
 - Claude Advisor: claude-sonnet-4-6
-- Monitor: 215 tokens/ciclo, 209 publicados, 0 errores, ~60s/ciclo
-- Holder concentration: Etherscan (ERC-20), BSCScan (BEP-20), Helius (Solana SPL) — activos si API key configurada
+- Monitor: ~79 tokens activos, ciclo cada 5 min; holder_top10_pct leído de DB (no en ciclo)
+- Holder concentration: job separado cada 6h (APScheduler en monitor_agent)
+  - Moralis (EVM): top-10 % de supply via `/erc20/{addr}/owners` (free tier, 3 req simultáneos, 1s delay)
+  - Helius (Solana SPL): `getTokenLargestAccounts` + `getTokenSupply`
+  - job filtra tokens activos con chain IN ('evm', 'solana') y contract_address IS NOT NULL
+  - Semáforo + delay en Moralis: `asyncio.Semaphore(3)` + `asyncio.sleep(1.0)` por request
+  - Cache en memoria 6h: evita re-consultar Moralis entre jobs
+  - backfill_contracts.py: script one-shot para poblar contract_address desde CoinGecko
 - Migración 0006: columna `chain` en token_candidates (aplicada manualmente vía psql)
+- 144 tokens con contract_address en DB (64 nuevos tras backfill 2026-05-28)
+- Detector: no sobreescribe holder_concentration_pct con None (guard añadido 2026-05-27)
 
 ## Próximos pasos
-- Configurar BSCSCAN_API_KEY y HELIUS_API_KEY en .env del VPS para activar holder data en BEP-20/Solana
-- Monitorear primeras señales reales en el VPS (TRIA cierra por MAX_HOLD en ~8h desde 2026-05-20 03:00 UTC)
-- Validar que Telegram envía alertas con umbral 55 correctamente
+- Correr backfill_contracts.py periódicamente cuando Discovery rote tokens activos
 - Validar que el Learner procesa trades cerrados cuando se acumulen datos
 - Fix pendiente: circuit breaker publica `{"_system_alert": True, ...}` en `channel:detector:scored_token` → ruido no crítico
 - Coinglass API pública v2 DEPRECADA — sin señales de derivados hasta nueva fuente
 - CCXT da funding/OI solo para contratos SWAP, no spot
+- Considerar integrar backfill de contract_address en Discovery (automático para tokens nuevos)
 
 ## Knowns issues / limitaciones
 - Coinglass devuelve HTTP 500 en todos los endpoints → lp_holder y cl_short = 0 pts siempre
 - Sin derivados, máx score alcanzable ≈ 67.5 pts (inflow 40 + precio 20 + funding neutro 7.5)
-- Holder concentration: activo para ERC-20 (Etherscan); BEP-20/Solana requieren API keys adicionales
 - CoinGecko free tier se rate-limita (429) en discovery → algunas páginas se pierden
 - Circuit breaker system alert: executor publica en `channel:detector:scored_token` → se recibe a sí mismo, falla parse como ScoredToken → warning `invalid_payload` (no crítico)
 - Scorer: Telegram es best-effort; si falla, loguea y continúa guardando en DB + marcando `alert_sent=True`
 - Migración 0006: no se aplica automáticamente (imagen orchestrator cacheada). Workaround: aplicar via psql manual + UPDATE alembic_version
 - Migraciones futuras: siempre hacer `docker compose build orchestrator` antes de up para que las migraciones nuevas estén en la imagen
+- MORALIS_API_KEY en .env del VPS: debe estar en LF (no CRLF) y en una sola línea sin espacios embebidos. Docker Compose trunca valores con \r o \n internos
+- Tokens con chain='unknown' y address 0x válida: saltean Moralis (OnchainClient detecta 'unknown' como chain inválida). Fix pendiente: usar _detect_chain como fallback en get_holder_concentration
+- ~20% de tokens activos sin contract_address (tokens no listados en CoinGecko). Sin holder data para estos
 
 ## Schema DB
 **token_candidates** — columnas añadidas post-init:

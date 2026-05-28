@@ -1753,3 +1753,222 @@ c95b5e2 fix: agregar USD1 y ZEC a blacklist (pre_screener + scorer)
 ```
 
 Pushed a `origin/main`. VPS actualizado: scorer y discovery reconstruidos y operativos.
+
+---
+
+## Sesión 2026-05-25 al 2026-05-28 — Moralis API key truncada + holder_concentration refactor
+
+### Contexto
+
+`holder_concentration_pct` seguía NULL en la DB a pesar de que Moralis respondía HTTP 200.
+Se diagnosticaron tres problemas independientes que juntos hacían imposible persistir ese dato.
+
+---
+
+### BUG 1 — MORALIS_API_KEY truncada a 124 chars por CRLF
+
+**Síntoma:** `docker exec monitor python -c "import os; k=os.getenv('MORALIS_API_KEY',''); print(len(k))"` → `124`.
+La JWT completa tiene 324 chars. Moralis devolvía HTTP 401 para todas las llamadas.
+
+**Root cause (dos capas):**
+
+1. El archivo `.env` copiado desde Windows tenía saltos de línea CRLF (`\r\n`). El valor de
+   `MORALIS_API_KEY` era un JWT que originalmente ocupaba múltiples líneas en el archivo fuente,
+   y al copiarlo quedó con un `\r\n  ` embebido en la posición 124.
+
+2. Docker/Docker Compose detiene la lectura de un valor de variable de entorno al encontrar `\r`
+   (lo interpreta como fin de línea). Aunque `env_file:` parseaba correctamente el LF, el CRLF
+   dentro del valor causaba el truncamiento silencioso.
+
+**Diagnóstico:**
+```python
+# Inspección en bytes para detectar el \r
+with open('/opt/crypto_agent_system/.env', 'rb') as f:
+    data = f.read()
+# Encontrado: b'MORALIS_API_KEY=...124chars\r\n  idXNlcklk...'
+```
+
+**Fix — script de normalización:**
+```python
+# /tmp/fix_env.py
+with open('/opt/crypto_agent_system/.env', 'rb') as f:
+    data = f.read()
+data = data.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+lines = data.split(b'\n')
+new_lines = []
+i = 0
+while i < len(lines):
+    line = lines[i]
+    if line.startswith(b'MORALIS_API_KEY='):
+        val = line.split(b'=', 1)[1]
+        while i + 1 < len(lines) and lines[i+1].startswith(b' '):
+            i += 1
+            val += lines[i].strip()
+        new_lines.append(b'MORALIS_API_KEY=' + val)
+    else:
+        new_lines.append(line)
+    i += 1
+with open('/opt/crypto_agent_system/.env', 'wb') as f:
+    f.write(b'\n'.join(new_lines))
+```
+
+Después del fix: `len=324`, `'Hcz8A'` (últimos 5 chars correctos).
+`docker compose up -d --force-recreate --no-deps monitor` para que el container releia el env.
+
+**Lección crítica:** `docker compose up -d` sin `--force-recreate` muestra `Running 0.0s` y
+**no reinicia el proceso Python** si no detecta cambios en la config del compose. Cambiar solo el `.env`
+requiere `--force-recreate` para que el nuevo env sea cargado.
+
+---
+
+### BUG 2 — holder_concentration_pct nunca persistía (dos causas independientes)
+
+**Causa A — Monitor no escribía a DB:**
+`monitor_agent.py:_fetch_and_publish()` solo publicaba el snapshot a Redis. Nunca hacía
+`UPDATE token_candidates SET holder_concentration_pct = ...`. El dato calculado por Moralis
+viajaba por el bus y se perdía.
+
+**Causa B — Detector sobreescribía con None:**
+`detector_agent.py:_handle_snapshot()` hacía incondicionalmente:
+```python
+await session.execute(
+    update(TokenCandidate)
+    .values(holder_concentration_pct=scored.holder_top10_pct, ...)
+)
+```
+Si `scored.holder_top10_pct` era `None` (Moralis no respondió o token sin contract_address),
+esta línea pisaba cualquier valor previo en la DB con NULL.
+
+**Fix en `detector_agent.py`:**
+```python
+update_values: dict = {
+    "detection_score": scored.composite_score,
+    # ... otros campos ...
+}
+if scored.holder_top10_pct is not None:           # ← solo escribir si hay dato
+    update_values["holder_concentration_pct"] = scored.holder_top10_pct
+async with get_session() as session:
+    await session.execute(update(TokenCandidate).values(**update_values))
+```
+
+---
+
+### REFACTOR — Job cada 6h para holder data (en vez de por ciclo)
+
+**Motivación:** con 85 tokens EVM activos, `fetch_all()` llamaba a Moralis 2 veces por token
+(ETH + BSC fallback) × cada ciclo de 5 minutos = ~170 requests/ciclo = ~2,040 requests/hora.
+El free tier de Moralis tiene ~40k CU/día (~1,666 CU/hora) → se agotaba en el primer ciclo.
+
+**Solución:** mover la obtención de holder data a un job APScheduler cada 6h:
+
+```python
+# monitor_agent.py — en start()
+self._scheduler.add_job(
+    self.refresh_holder_data,
+    trigger="interval",
+    hours=6,
+    id="holder_refresh",
+    replace_existing=True,
+    max_instances=1,
+    next_run_time=datetime.now(timezone.utc),   # corre al arrancar
+)
+```
+
+```python
+async def refresh_holder_data(self) -> None:
+    async with get_session() as session:
+        tokens = (await session.execute(
+            select(TokenCandidate)
+            .where(TokenCandidate.status == TokenStatus.active)
+            .where(TokenCandidate.contract_address.isnot(None))
+            .where(TokenCandidate.chain.in_(["evm", "solana"]))
+        )).scalars().all()
+
+    for i, token in enumerate(tokens):
+        try:
+            pct, source = await self._fetcher._onchain.get_holder_concentration(
+                token.contract_address, token.chain
+            )
+            if pct is not None:
+                async with get_session() as session:
+                    await session.execute(
+                        update(TokenCandidate)
+                        .where(TokenCandidate.id == token.id)
+                        .values(holder_concentration_pct=pct)
+                    )
+        except Exception as e:
+            log.warning("holder_refresh.error", symbol=token.symbol, error=str(e))
+        if i > 0 and i % 5 == 0:
+            await asyncio.sleep(2)   # cortesía entre lotes de 5
+```
+
+**Cambios complementarios en `data_fetcher.py`:**
+- `fetch_all()` ya no llama a Moralis — recibe `holder_top10_pct` como parámetro preexistente.
+- Los 3 únicos calls en `gather` para onchain: `get_exchange_inflow`, `get_long_short_ratio`,
+  `get_open_interest`.
+- `holder_source="db"` en el snapshot cuando el valor viene de la DB (vs `None`).
+
+**Rate limiting adicional en `onchain_client.py`:**
+- `_MORALIS_SEM = asyncio.Semaphore(3)` — máximo 3 llamadas Moralis paralelas
+- Sleep de 1s dentro del semáforo por llamada
+- Cache in-process de 6h (`dict[str, tuple[float, float]]`) para evitar doble consulta
+  ETH+BSC cuando el job corre dos veces seguidas
+
+---
+
+### Backfill de contract_address
+
+El job nuevo procesaba solo 3 tokens porque la columna `contract_address` estaba vacía para
+la mayoría de los tokens activos actuales (Discovery había rotado el watchlist desde el
+backfill anterior).
+
+**Re-ejecutado `backfill_contracts.py`** con los tokens activos actuales:
+```
+Tokens saved: 64, Tokens total: 144
+```
+
+144 tokens con `contract_address` + `chain` en DB. El siguiente job a las 11:00 UTC
+procesó ~20+ tokens correctamente (después de la renovación del plan Moralis al inicio
+de la hora).
+
+---
+
+### Tokens con chain='unknown' — problema pendiente
+
+El `refresh_holder_data` filtra `.where(TokenCandidate.chain.in_(["evm", "solana"]))`.
+Tokens con `chain='unknown'` (insertados por Discovery antes de la migración 0006, o con
+formato de address ambiguo) son excluidos del job aunque tengan una dirección `0x` válida.
+
+La función `_detect_chain()` en el monitor podría corregir esto, pero no se aplica
+retroactivamente a tokens ya en DB. Fix pendiente: Discovery debería normalizar `chain`
+al insertar, y un script de limpieza podría actualizar las filas `'unknown'` existentes.
+
+---
+
+### Commits de esta sesión
+
+```
+31f8a78 — docker-compose.yml: añade MORALIS_API_KEY a x-common-env environment
+559459c — onchain_client.py: semáforo Moralis + cache 6h + 429 handling
+cca80ae — monitor_agent.py: job refresh_holder_data cada 6h
+eed6e0b — detector_agent.py: no sobreescribir holder_concentration_pct con None
+7ee71e7 — onchain_client.py: rate limiting mejorado (Semaphore + sleep)
+4a9cdb3 — data_fetcher.py: holder_top10_pct como parámetro, remove Moralis per-cycle
+43e607f — monitor_agent.py: pasar holder_top10_pct a _fetch_and_publish
+```
+
+Pushed a `origin/main`. VPS actualizado con `git pull` y `--force-recreate` en monitor.
+
+---
+
+### Estado al finalizar
+
+```
+✅ MORALIS_API_KEY: 324 chars (completa) en el container
+✅ holder_concentration_pct: job cada 6h actualiza ~76 tokens EVM/Solana con contract_address
+✅ Detector no borra holder_concentration_pct existente
+✅ backfill_contracts.py ejecutado: 144 tokens con contract_address en DB
+⏳ ~70 tokens sin contract_address (pendiente próximo ciclo de Discovery)
+⏳ Tokens chain='unknown' con address 0x válida no entran al job (limpieza pendiente)
+⏳ Moralis free tier: suficiente para el job 6h; monitorear si Discovery rota tokens frecuentemente
+```
