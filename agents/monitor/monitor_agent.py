@@ -57,7 +57,16 @@ class MonitorAgent:
             seconds=settings.monitor_interval_seconds,
             id="monitor_cycle",
             replace_existing=True,
-            max_instances=1,           # no se solapa con sí mismo
+            max_instances=1,
+        )
+        self._scheduler.add_job(
+            self.refresh_holder_data,
+            trigger="interval",
+            hours=6,
+            id="holder_refresh",
+            replace_existing=True,
+            max_instances=1,
+            next_run_time=datetime.now(timezone.utc),  # correr inmediatamente al iniciar
         )
         self._scheduler.start()
         log.info(
@@ -85,7 +94,13 @@ class MonitorAgent:
         async with get_session() as session:
             rows = (
                 await session.execute(
-                    select(TokenCandidate.symbol, TokenCandidate.exchange, TokenCandidate.contract_address, TokenCandidate.chain)
+                    select(
+                        TokenCandidate.symbol,
+                        TokenCandidate.exchange,
+                        TokenCandidate.contract_address,
+                        TokenCandidate.chain,
+                        TokenCandidate.holder_concentration_pct,
+                    )
                     .where(TokenCandidate.status == TokenStatus.active)
                 )
             ).all()
@@ -96,6 +111,7 @@ class MonitorAgent:
                 "exchange": r.exchange,
                 "contract_address": r.contract_address,
                 "chain": _effective_chain(r.contract_address, r.chain),
+                "holder_top10_pct": r.holder_concentration_pct,
             }
             for r in rows
         ]
@@ -108,7 +124,7 @@ class MonitorAgent:
 
         # 2. Fetch en paralelo con semáforo interno en DataFetcher
         tasks = [
-            self._fetch_and_publish(t["symbol"], t["exchange"], t.get("contract_address"), t.get("chain"))
+            self._fetch_and_publish(t["symbol"], t["exchange"], t.get("contract_address"), t.get("chain"), t.get("holder_top10_pct"))
             for t in active_tokens
         ]
         outcomes = await asyncio.gather(*tasks, return_exceptions=True)
@@ -143,26 +159,51 @@ class MonitorAgent:
         )
         return result
 
-    async def _fetch_and_publish(self, symbol: str, exchange: str, contract_address: str | None = None, chain: str | None = None) -> bool:
-        snapshot: TokenSnapshot | None = await self._fetcher.fetch_all(symbol, exchange, contract_address, chain)
+    async def _fetch_and_publish(self, symbol: str, exchange: str, contract_address: str | None = None, chain: str | None = None, holder_top10_pct: float | None = None) -> bool:
+        snapshot: TokenSnapshot | None = await self._fetcher.fetch_all(symbol, exchange, contract_address, chain, holder_top10_pct)
         if snapshot is None:
             API_ERRORS.labels(reason="no_snapshot").inc()
             return False
 
         await bus.publish(Channel.MONITOR_PUMP_SIGNAL, snapshot.model_dump())
-
-        if snapshot.holder_top10_pct is not None:
-            async with get_session() as session:
-                await session.execute(
-                    update(TokenCandidate)
-                    .where(TokenCandidate.symbol == symbol)
-                    .where(TokenCandidate.exchange == exchange)
-                    .values(holder_concentration_pct=snapshot.holder_top10_pct)
-                )
-            log.debug(
-                "monitor.holder_saved",
-                symbol=symbol,
-                pct=snapshot.holder_top10_pct,
-            )
-
         return True
+
+    async def refresh_holder_data(self) -> None:
+        """Job cada 6h: actualiza holder_concentration_pct para tokens con contract_address."""
+        log.info("holder_refresh.started")
+        async with get_session() as session:
+            tokens = (
+                await session.execute(
+                    select(TokenCandidate)
+                    .where(TokenCandidate.status == TokenStatus.active)
+                    .where(TokenCandidate.contract_address.isnot(None))
+                )
+            ).scalars().all()
+
+        updated = 0
+        for i, token in enumerate(tokens):
+            try:
+                pct, source = await self._fetcher._onchain.get_holder_concentration(
+                    token.contract_address, token.chain
+                )
+                if pct is not None:
+                    async with get_session() as session:
+                        await session.execute(
+                            update(TokenCandidate)
+                            .where(TokenCandidate.id == token.id)
+                            .values(holder_concentration_pct=pct)
+                        )
+                    updated += 1
+                    log.info(
+                        "holder_refresh.saved",
+                        symbol=token.symbol,
+                        pct=pct,
+                        source=source,
+                    )
+            except Exception as e:
+                log.warning("holder_refresh.error", symbol=token.symbol, error=str(e))
+
+            if i > 0 and i % 5 == 0:
+                await asyncio.sleep(2)
+
+        log.info("holder_refresh.done", updated=updated, total=len(tokens))

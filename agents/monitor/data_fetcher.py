@@ -101,26 +101,22 @@ class DataFetcher:
 
     _FALLBACK = {"mexc": "bitget", "bitget": "mexc"}
 
-    async def fetch_all(self, symbol: str, exchange_id: str, contract_address: Optional[str] = None, chain: Optional[str] = None) -> Optional[TokenSnapshot]:
+    async def fetch_all(self, symbol: str, exchange_id: str, contract_address: Optional[str] = None, chain: Optional[str] = None, holder_top10_pct: Optional[float] = None) -> Optional[TokenSnapshot]:
         pair = f"{symbol}/USDT"
         errors: list[str] = []
 
         # ── Onchain calls (independientes del exchange) ───────────────────────
+        # holder_concentration ya viene pre-cargado desde DB (job cada 6h)
         (
             cq_inflow,
             ls_ratio,
             cg_oi,
-            holder_result,
-            holder_count,
         ) = await asyncio.gather(
             self._onchain.get_exchange_inflow(symbol),
             self._onchain.get_long_short_ratio(symbol),
             self._onchain.get_open_interest(symbol),
-            self._onchain.get_holder_concentration(contract_address, chain),
-            self._onchain.get_holder_count(contract_address),
             return_exceptions=False,
         )
-        holder_top10_pct, holder_source = holder_result if isinstance(holder_result, tuple) else (None, None)
 
         # ── Exchange calls con fallback ───────────────────────────────────────
         ticker = orderbook = funding = open_interest = None
@@ -185,8 +181,8 @@ class DataFetcher:
             inflow_4h_usd=inflow_4h,
             inflow_24h_usd=volume_usd,
             holder_top10_pct=holder_top10_pct,
-            holder_source=holder_source,
-            total_holders=holder_count,
+            holder_source="db" if holder_top10_pct is not None else None,
+            total_holders=None,
             funding_rate=funding.get("fundingRate") if funding else None,
             open_interest_usd=oi_usd,
             long_short_ratio=ls_ratio,
