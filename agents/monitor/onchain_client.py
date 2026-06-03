@@ -20,7 +20,7 @@ from shared.utils.retry import http_retry
 log = structlog.get_logger(__name__)
 
 COINGLASS_BASE      = "https://open-api.coinglass.com/public/v2"
-ETHERSCAN_V2_BASE   = "https://api.etherscan.io/v2/api"
+ETHERSCAN_BASE      = "https://api.etherscan.io/v2/api"
 HELIUS_RPC_BASE     = "https://mainnet.helius-rpc.com"
 CRYPTOQUANT_BASE    = "https://api.cryptoquant.com/v1"
 
@@ -137,7 +137,7 @@ class EtherscanClient:
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(
-                    ETHERSCAN_V2_BASE,
+                    ETHERSCAN_BASE,
                     params={
                         "chainid": self._CHAIN_ID,
                         "module": "token",
@@ -170,20 +170,20 @@ class EtherscanClient:
             async with httpx.AsyncClient() as client:
                 resp_holders, resp_supply = await asyncio.gather(
                     client.get(
-                        ETHERSCAN_V2_BASE,
+                        ETHERSCAN_BASE,
                         params={
-                            "chainid": self._CHAIN_ID,
-                            "module": "token",
-                            "action": "tokenholderlist",
-                            "contractaddress": contract_address,
-                            "page": 1,
-                            "offset": 10,
-                            "apikey": self._api_key,
+                            'chainid': 1,
+                            'module': 'token',
+                            'action': 'tokenholderlist',
+                            'contractaddress': contract_address,
+                            'page': 1,
+                            'offset': 10,
+                            'apikey': self._api_key,
                         },
                         timeout=10,
                     ),
                     client.get(
-                        ETHERSCAN_V2_BASE,
+                        ETHERSCAN_BASE,
                         params={
                             "chainid": self._CHAIN_ID,
                             "module": "stats",
@@ -235,20 +235,20 @@ class BscClient:
             async with httpx.AsyncClient() as client:
                 resp_holders, resp_supply = await asyncio.gather(
                     client.get(
-                        ETHERSCAN_V2_BASE,
+                        ETHERSCAN_BASE,
                         params={
-                            "chainid": self._CHAIN_ID,
-                            "module": "token",
-                            "action": "tokenholderlist",
-                            "contractaddress": contract_address,
-                            "page": 1,
-                            "offset": 10,
-                            "apikey": self._api_key,
+                            'chainid': 56,
+                            'module': 'token',
+                            'action': 'tokenholderlist',
+                            'contractaddress': contract_address,
+                            'page': 1,
+                            'offset': 10,
+                            'apikey': self._api_key,
                         },
                         timeout=10,
                     ),
                     client.get(
-                        ETHERSCAN_V2_BASE,
+                        ETHERSCAN_BASE,
                         params={
                             "chainid": self._CHAIN_ID,
                             "module": "stats",
@@ -483,7 +483,8 @@ class OnchainClient:
     ) -> tuple[Optional[float], Optional[str]]:
         """
         Retorna (pct_top10, source_name). Detecta la chain automáticamente si no se provee.
-        Orden de intento: Etherscan → BSCScan → Helius.
+        Para chain='evm': intenta Etherscan chainid=1 primero, luego chainid=56 (BSC).
+        Para chain='solana': usa Helius sin cambios.
         """
         if not contract_address:
             return None, None
@@ -499,11 +500,11 @@ class OnchainClient:
             pct = await self.moralis.get_holder_concentration(contract_address)
             if pct is not None:
                 return pct, "Moralis"
-            # 2. Etherscan V2 chainid=1 (Pro endpoint — retornará None en free tier)
+            # 2. Etherscan V2 chainid=1 (Ethereum)
             pct = await self.etherscan.get_holder_concentration(contract_address)
             if pct is not None:
                 return pct, "Etherscan"
-            # 3. BSC chainid=56
+            # 3. Etherscan V2 chainid=56 (BSC)
             pct = await self.bsc.get_holder_concentration(contract_address)
             if pct is not None:
                 return pct, "BSC"
