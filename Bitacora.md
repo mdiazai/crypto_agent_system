@@ -70,3 +70,31 @@
 - Code Agent: cambiar estrategia → sed directo en lugar de enviar archivo completo a Claude
 
 ---
+
+## Sesión 2026-06-04
+
+### Code Agent — Comandos /logs y /scores implementados
+- Agregado Ops Router como segundo switch para comandos de consulta
+- Arquitectura dual router: Route Command (3 outputs) → Ops Router (3 outputs)
+- `/logs`: lee directo del archivo JSON de Docker del contenedor monitor
+  - Comando: `tail -20 /var/lib/docker/containers/5ad364e.../..-json.log | python3 parse`
+- `/scores`: query a PostgreSQL con columna `detection_score` (no `total_score`)
+  - Comando: `docker exec postgres psql ... SELECT symbol, detection_score...`
+- Ambos comandos funcionando y entregando datos en Telegram ✅
+
+### Bugs resueltos
+- `docker compose logs` se colgaba → solución: leer archivo JSON directo del contenedor
+- Columna `total_score` no existe → nombre real es `detection_score`
+- Webhook Code Agent UUID cambió al reimportar workflow → re-registrado en Telegram
+- Token Code Agent: `8763657547` — webhook: `/webhook/c1a5e861-f106-4d7d-82e2-0be00cc13a7c/webhook`
+
+### Observación del sistema
+- Todos los tokens con `detection_score = 25` (aplanado) → scorer no está procesando señales correctamente
+- ZINC/USDT warning recurrente en MEXC y Bitget → token a limpiar de la lista
+- `holder_concentration_pct` funcionando correctamente vía Moralis (85-100%)
+
+### Pendientes
+- SmartDevops Agent — diagnosticar aplanamiento de scores
+- `/rollback` comando pendiente
+- Limpiar ZINC de `token_candidates`
+- Credenciales en n8n: verificar nombres exactos para eliminar triángulos rojos
