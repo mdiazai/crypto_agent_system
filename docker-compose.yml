@@ -198,11 +198,43 @@ services:
       - ./agents/dashboard:/app/agents/dashboard:ro
       - ./shared:/app/shared:ro
 
+  # ─── n8n Automation ──────────────────────────────────────────────────────────
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=https://prague-kijiji-package-top.trycloudflare.com/
+      - GENERIC_TIMEZONE=America/Montevideo
+      - N8N_LOG_LEVEL=info
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - MKEYS_CHAT_ID=${MKEYS_CHAT_ID}
+      - MONKEY_CHAT_ID=${MONKEY_CHAT_ID}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - /opt/crypto_agent_system:/workspace:rw
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
+    user: "1000:1000"
+    networks:
+      - default
+
 volumes:
   postgres_data:
   redis_data:
   prometheus_data:
   grafana_data:
+  n8n_data:
 
 networks:
   default:
