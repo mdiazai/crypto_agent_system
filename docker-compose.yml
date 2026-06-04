@@ -1,0 +1,241 @@
+version: "3.9"
+
+x-common-env: &common-env
+  env_file: .env
+  environment:
+    - DATABASE_URL=${DATABASE_URL}
+    - REDIS_URL=${REDIS_URL}
+    - ETHERSCAN_API_KEY=${ETHERSCAN_API_KEY}
+    - HELIUS_API_KEY=${HELIUS_API_KEY}
+    - MORALIS_API_KEY=${MORALIS_API_KEY}
+
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+x-logging: &default-logging
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # ─── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    <<: [*restart-policy, *default-logging]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-crypto_agent}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    <<: [*restart-policy, *default-logging]
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Observability ──────────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    <<: [*restart-policy, *default-logging]
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-8000}:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+
+  grafana:
+    image: grafana/grafana:10.4.3
+    <<: [*restart-policy, *default-logging]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+
+  # ─── Agents ─────────────────────────────────────────────────────────────────
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    <<: [*common-env, *restart-policy, *default-logging]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./orchestrator:/app/orchestrator:ro
+      - ./shared:/app/shared:ro
+
+  discovery:
+    build:
+      context: .
+      dockerfile: agents/discovery/Dockerfile
+    <<: [*common-env, *restart-policy, *default-logging]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./agents/discovery:/app/agents/discovery:ro
+      - ./shared:/app/shared:ro
+
+  monitor:
+    build:
+      context: .
+      dockerfile: agents/monitor/Dockerfile
+    <<: [*common-env, *restart-policy, *default-logging]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./agents/monitor:/app/agents/monitor:ro
+      - ./shared:/app/shared:ro
+
+  detector:
+    build:
+      context: .
+      dockerfile: agents/detector/Dockerfile
+    <<: [*common-env, *restart-policy, *default-logging]
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./agents/detector:/app/agents/detector:ro
+      - ./shared:/app/shared:ro
+
+  scorer:
+    build:
+      context: .
+      dockerfile: agents/scorer/Dockerfile
+    <<: [*common-env, *restart-policy, *default-logging]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./agents/scorer:/app/agents/scorer:ro
+      - ./shared:/app/shared:ro
+
+  executor:
+    build:
+      context: .
+      dockerfile: agents/executor/Dockerfile
+    <<: [*common-env, *restart-policy, *default-logging]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./agents/executor:/app/agents/executor:ro
+      - ./shared:/app/shared:ro
+
+  learner:
+    build:
+      context: .
+      dockerfile: agents/learner/Dockerfile
+    <<: [*common-env, *restart-policy, *default-logging]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./agents/learner:/app/agents/learner:ro
+      - ./shared:/app/shared:ro
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: agents/dashboard/Dockerfile
+    <<: [*common-env, *restart-policy, *default-logging]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./agents/dashboard:/app/agents/dashboard:ro
+      - ./shared:/app/shared:ro
+
+  # ─── n8n Automation ──────────────────────────────────────────────────────────
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=https://prague-kijiji-package-top.trycloudflare.com/
+      - GENERIC_TIMEZONE=America/Montevideo
+      - N8N_LOG_LEVEL=info
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - MKEYS_CHAT_ID=${MKEYS_CHAT_ID}
+      - MONKEY_CHAT_ID=${MONKEY_CHAT_ID}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - /opt/crypto_agent_system:/workspace:rw
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
+    user: "1000:1000"
+    networks:
+      - default
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  n8n_data:
+
+networks:
+  default:
+    name: crypto_agent_network
