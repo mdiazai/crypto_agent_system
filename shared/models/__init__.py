@@ -4,6 +4,7 @@ from .token_candidate import TokenCandidate, TokenStatus, PatternType
 from .trade import Trade, TradeDirection, EntryQuality
 from .alert import Alert
 from .learning_log import LearningLog
+from .diagnostics_log import DiagnosticsLog
 
 __all__ = [
     "Base",
@@ -18,4 +19,5 @@ __all__ = [
     "EntryQuality",
     "Alert",
     "LearningLog",
+    "DiagnosticsLog",
 ]

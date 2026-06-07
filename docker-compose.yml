@@ -198,6 +198,26 @@ services:
       - ./agents/dashboard:/app/agents/dashboard:ro
       - ./shared:/app/shared:ro
 
+  smartdevops:
+    build:
+      context: .
+      dockerfile: agents/smartdevops/Dockerfile
+    <<: [*common-env, *restart-policy, *default-logging]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./agents/smartdevops:/app/agents/smartdevops:ro
+      - ./shared:/app/shared:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
   # ─── n8n Automation ──────────────────────────────────────────────────────────
 
   n8n:
