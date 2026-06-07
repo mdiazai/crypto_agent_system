@@ -1972,3 +1972,38 @@ Pushed a `origin/main`. VPS actualizado con `git pull` y `--force-recreate` en m
 ⏳ Tokens chain='unknown' con address 0x válida no entran al job (limpieza pendiente)
 ⏳ Moralis free tier: suficiente para el job 6h; monitorear si Discovery rota tokens frecuentemente
 ```
+
+---
+
+## Sesión 2026-06-06 — Crisis de CPU + fix DNS + fix webhook n8n
+
+### Crisis de CPU — VPS saturado
+- CPU al 100% sostenido por 24hs → Hostinger aplicó limitaciones automáticas
+- Causa: ejecuciones n8n colgadas 47hs + `docker compose logs` zombies + `docker exec postgres` colgado
+- Solución: reboot VPS + `docker update --cpus` para monitor y n8n
+- DNS fix permanente: agregado `dns: [8.8.8.8, 8.8.4.4]` al servicio n8n en `docker-compose.yml`
+- `WEBHOOK_URL` corregido en `docker-compose.yml`: `https://n8n.11mkeys.ai/`
+- Timeouts agregados a todos los nodos SSH del Code Agent workflow
+
+### Comandos SSH actualizados en Code Agent (v7.3)
+- Status Check: usa `docker exec` directo con `timeout 15` (antes `docker compose exec` que se colgaba)
+- Scores Check: usa `docker exec` con `timeout 10`
+- Todos los nodos SSH: `timeout` agregado al inicio del comando
+- Deploy: `timeout 120` con `bash -c`
+- Verify: `timeout 15` con `docker exec` directo
+
+### docker-compose.yml cambios permanentes
+- `dns: [8.8.8.8, 8.8.4.4]` agregado al servicio n8n
+- `WEBHOOK_URL=https://n8n.11mkeys.ai/` corregido (antes apuntaba a túnel Cloudflare)
+
+### Estado del sistema post-crisis
+- CPU: 4% — idle 87% — estable
+- Todos los contenedores Up
+- Workflow Code Agent v7.3 publicado y funcionando
+- `/status`, `/logs`, `/scores` funcionando desde Telegram
+
+### Pendientes
+- Límites de CPU permanentes en `docker-compose.yml` (deploy.resources no soportado sin Swarm)
+- Scorer aplanado — todos los tokens con `detection_score=25`
+- ZINC/USDT warning recurrente — limpiar de `token_candidates`
+- SmartDevops Agent — construcción pendiente

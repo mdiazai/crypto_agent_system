@@ -65,7 +65,20 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - **Monkey Advisor:** Telegram Trigger → Get System Context → Anthropic (nativo) → Send a text message
 - **Code Agent:** Telegram Trigger → Route Command → Ops Router (arquitectura dual switch)
 
-## Estado del sistema (2026-06-04)
+## Infraestructura VPS — Cambios importantes (2026-06-06)
+- `WEBHOOK_URL` n8n: `https://n8n.11mkeys.ai/` (permanente en `docker-compose.yml`)
+- DNS n8n: `8.8.8.8`, `8.8.4.4` (permanente en `docker-compose.yml`)
+- Límites de CPU activos (runtime): monitor 0.5 CPU, n8n 1.0 CPU
+- `docker compose logs` se cuelga en este VPS — usar `tail` directo al archivo JSON del contenedor
+- `docker compose exec postgres` se cuelga — usar `docker exec` directo con `timeout`
+
+## Comandos seguros para este VPS
+- Logs: `tail -N /var/lib/docker/containers/CONTAINER_ID/*-json.log`
+- Status DB: `timeout 10 docker exec crypto_agent_system-postgres-1 psql -U postgres -d crypto_agent -c "QUERY"`
+- Status containers: `timeout 8 docker ps --format ...`
+- **NUNCA usar:** `docker compose logs` (se cuelga), `docker compose exec postgres` (se cuelga)
+
+## Estado del sistema (2026-06-06)
 - Monitor: 84 tokens activos, 83 publicados, 0 errores por ciclo
 - `detection_score` todos en 25 (aplanado) — scorer pendiente de diagnóstico
 - `holder_concentration_pct` activo vía Moralis ✅
