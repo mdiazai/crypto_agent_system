@@ -47,6 +47,10 @@ completo de 5 pasos con los workflows JSON listos para importar.
   - Token: `8763657547:AAHBZoVejJnmYbg2n0gmOqQ48nLmqPjfvqM`
   - Webhook: `https://n8n.11mkeys.ai/webhook/c1a5e861-f106-4d7d-82e2-0be00cc13a7c/webhook`
   - allowed_updates: `message`, `callback_query`
+- **SmartDevops Agent:** `@ElevenMkeys_SmartDevops_bot`
+  - Token: `8141614556:AAEbY07qhTW0idh5BaH5fMjv2JPt2PY1mV0`
+  - Webhook: `https://n8n.11mkeys.ai/webhook/4e2d5c25-11ce-476c-85c7-d45f847f168c/webhook`
+  - allowed_updates: `callback_query`
 
 ## Code Agent Bot — Comandos disponibles
 - `/fix_etherscan` — aplica fix Etherscan V2 con aprobación manual
@@ -56,14 +60,23 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - `approve_deploy` — botón inline para aprobar deploy
 - `reject_deploy` — botón inline para rechazar deploy
 
+## SmartDevops Agent — Arquitectura
+- Ciclo cada 30 min: Docker API + PostgreSQL + Redis → Claude diagnóstico → Telegram propuesta
+- Bot `@ElevenMkeys_SmartDevops_bot` envía mensaje con botones `sd_approve` / `sd_ignore`
+- n8n workflow `11Mkeys SmartDevops Agent` ejecuta el comando vía SSH al aprobar
+- Redis key `smartdevops:pending_command` (SETEX 3600) como IPC entre Python y n8n
+- Historial en tabla `diagnostics_log` (PostgreSQL)
+- Docker socket montado: `/var/run/docker.sock` (usa Docker API, no binario)
+- Logs de contenedores via Docker API en paralelo con timeout 3s por contenedor
+
 ## Arquitectura n8n Code Agent (v7)
 - Route Command → 3 outputs: `fix_etherscan`, `approve_deploy`, `reject_deploy`
 - Ops Router → 3 outputs: `/status`, `/logs`, `/scores`
-- Logs Check lee: `/var/lib/docker/containers/5ad364e864fa84e979d7271bf47c53854546ca7aad146c1e3bb52ea4d2886462/...-json.log`
 
 ## Workflows n8n
 - **Monkey Advisor:** Telegram Trigger → Get System Context → Anthropic (nativo) → Send a text message
 - **Code Agent:** Telegram Trigger → Route Command → Ops Router (arquitectura dual switch)
+- **SmartDevops Agent:** Telegram Trigger (callback_query) → Route Command → SSH execute/ignore → Telegram notify
 
 ## Infraestructura VPS — Cambios importantes (2026-06-06)
 - `WEBHOOK_URL` n8n: `https://n8n.11mkeys.ai/` (permanente en `docker-compose.yml`)
@@ -78,13 +91,14 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - Status containers: `timeout 8 docker ps --format ...`
 - **NUNCA usar:** `docker compose logs` (se cuelga), `docker compose exec postgres` (se cuelga)
 
-## Estado del sistema (2026-06-06)
+## Estado del sistema (2026-06-07)
 - Monitor: 84 tokens activos, 83 publicados, 0 errores por ciclo
 - `detection_score` todos en 25 (aplanado) — scorer pendiente de diagnóstico
 - `holder_concentration_pct` activo vía Moralis ✅
 - `agents/monitor/onchain_client.py`: `ETHERSCAN_BASE = https://api.etherscan.io/v2/api`
 - ZINC/USDT warning recurrente — pendiente limpiar de `token_candidates`
 - Pendiente: chainid en BscClient + OnchainClient fallback chain
+- **SmartDevops Agent: deployado y operativo ✅** — primer diagnóstico: orchestrator en crash loop (critical)
 
 ## Reglas
 - Nunca modificar /opt/crypto_agent_system directamente
