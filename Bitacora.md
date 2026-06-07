@@ -2076,7 +2076,123 @@ aprobación humana antes de ejecutar.
 - Bot `@ElevenMkeys_SmartDevops_bot` con webhook registrado en n8n
 
 ### Pendientes
-- Scorer aplanado — todos los tokens con `detection_score=25` — investigar signals pipeline
+- ~~Scorer aplanado~~ — resuelto en sesión siguiente ✅
 - ZINC/USDT warning recurrente — limpiar de `token_candidates`
 - Límites de CPU permanentes en docker-compose.yml
-- SmartDevops Agent — construcción pendiente
+
+---
+
+## Sesión 2026-06-07 (turno 2) — Fix scorer aplanado (detection_score=25 para todos)
+
+### Diagnóstico
+
+Todos los tokens tenían `detection_score=25`. Investigación sistemática desde la DB hacia el
+código reveló 3 problemas independientes que se combinaban para producir el score plano.
+
+**Traza del pipeline:**
+```
+Monitor (data_fetcher.py) → Redis MONITOR_PUMP_SIGNAL → Detector (score_engine.py) → DB
+```
+
+**Problema 1 — CryptoQuantClient solo cubre large-caps**
+
+`CryptoQuantClient._SUPPORTED = {"BTC", "ETH", "XRP", "LTC", "BCH", "EOS", "TRX", "BNB"}`.
+Los 84 tokens monitoreados son small-caps de MEXC/Bitget — ninguno está en la lista.
+`cq_inflow = None` para todos los tokens siempre.
+
+**Problema 2 — `inflow_1h_usd` hardcodeado a `None`**
+
+En `data_fetcher.py` línea 181:
+```python
+inflow_1h_usd=None,   # ← siempre None
+```
+`pattern_classic_squeeze._inflow_activator_signal()` usa `inflow_1h_usd`. Si es `None`, devuelve 0.
+El inflow activator del Classic Squeeze nunca contribuía al score.
+
+**Problema 3 — `inflow_threshold_usd=500_000` calibrado para large-caps**
+
+El proxy en `data_fetcher.py` era: `inflow_4h = volume_usd * 0.15`
+Para un token con $200k de volumen: `inflow_4h = 30k` → `ratio = 30k / 500k = 0.06` → `inflow_s = 1.2 pts`.
+Virtualmente cero para todos los small-caps.
+
+**Por qué el resultado era siempre 25:**
+
+```
+classic_squeeze = 0 (short) + 0 (funding) + 0 (inflow_1h=None) + 25.0 (holder_top10 ≥ 80%) = 25.0
+long_pump       = ~0.6 (inflow tiny) + 0 (suppl) + price_s + 7.5 (funding neutro)
+```
+
+Para tokens con price_change_24h > 3% (común en small-caps): `long_pump ≤ 24.5 → composite = 25.0`.
+
+### Cambios implementados
+
+**`shared/config/settings.py`**
+```python
+# antes
+inflow_threshold_usd: float = Field(500_000.0, gt=0)
+# después
+inflow_threshold_usd: float = Field(100_000.0, gt=0)
+```
+
+**`agents/monitor/data_fetcher.py`**
+```python
+# antes
+inflow_1h_usd=None,
+# después
+inflow_1h_usd=volume_usd / 24 if volume_usd else None,
+```
+
+No se modificó el proxy 4h (`volume_usd * 0.15`) ni la fórmula de scoring — solo el threshold y el 1h proxy.
+
+### Resultado verificado en producción
+
+```sql
+SELECT symbol, detection_score, volume_24h_usd FROM token_candidates
+WHERE status='active' ORDER BY detection_score DESC LIMIT 15;
+
+ symbol | detection_score | volume_24h_usd
+--------+-----------------+----------------
+ ZEST   |           34.38 |   458915.90219
+ IO     |           33.53 |   401988.02388
+ EGL1   |           32.97 |      364544.76
+ ASSET  |           32.79 |   352752.64952
+ SENTIS |           32.45 |   529932.16331
+ GUA    |           31.63 |   808883.35003
+ CHECK  |           31.57 |  271574.002415
+ CORN   |           31.52 |   267947.65395
+```
+
+Scores diferenciados y correlacionados con volumen. Antes: todos en 25.0.
+
+### Calibración del sistema post-fix
+
+| Volume (24h) | inflow_4h proxy | inflow_s LP | composite típico |
+|---|---|---|---|
+| $50k | $7.5k | 1.5 pts | ~26-28 |
+| $200k | $30k | 6 pts | ~30-32 |
+| $500k | $75k | 15 pts | ~36-42 |
+| $2M | $300k | 30 pts | ~52-57 |
+| $3M+ | $450k+ | 38-40 pts | ~62-67 (cerca del umbral) |
+
+Para cruzar el umbral de alerta (70 pts) se necesitaría ~$3M+ de volumen diario con precio
+estable simultáneamente — correcto para el perfil de tokens que este sistema busca detectar.
+
+### Deploy
+
+```bash
+# Local
+git add shared/config/settings.py agents/monitor/data_fetcher.py
+git commit -m "Fix scorer aplanado: lower inflow threshold 500k→100k, add inflow_1h proxy"
+git push origin master
+
+# VPS
+git stash      # stash local (solo tenía WEBHOOK_URL ya en remote)
+git pull origin master
+git stash drop
+docker compose build detector monitor
+docker compose up -d --no-deps detector monitor
+```
+
+### Pendientes
+- ZINC/USDT warning recurrente — limpiar de `token_candidates`
+- Límites de CPU permanentes en docker-compose.yml

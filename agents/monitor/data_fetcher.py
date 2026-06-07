@@ -177,7 +177,7 @@ class DataFetcher:
             price_change_24h_pct=self._safe(ticker.get("percentage")),
             volume_24h_usd=volume_usd,
             bid_ask_spread_pct=self._calc_spread_pct(orderbook),
-            inflow_1h_usd=None,
+            inflow_1h_usd=volume_usd / 24 if volume_usd else None,
             inflow_4h_usd=inflow_4h,
             inflow_24h_usd=volume_usd,
             holder_top10_pct=holder_top10_pct,

@@ -93,13 +93,20 @@ completo de 5 pasos con los workflows JSON listos para importar.
 
 ## Estado del sistema (2026-06-07)
 - Monitor: 84 tokens activos, 83 publicados, 0 errores por ciclo
-- `detection_score` todos en 25 (aplanado) — scorer pendiente de diagnóstico
+- `detection_score` diferenciado ✅ — rango 30-34 correlacionado con volumen (fix aplicado)
 - `holder_concentration_pct` activo vía Moralis ✅
 - `agents/monitor/onchain_client.py`: `ETHERSCAN_BASE = https://api.etherscan.io/v2/api`
 - ZINC/USDT warning recurrente — pendiente limpiar de `token_candidates`
 - Pendiente: chainid en BscClient + OnchainClient fallback chain
 - **SmartDevops Agent: deployado y operativo ✅** — primer diagnóstico: orchestrator en crash loop (critical) → resuelto con rebuild
 - **Orchestrator: estable ✅** — crash loop causado por migración 0007 faltante en imagen; fix: rebuild
+
+## Fix scorer aplanado (2026-06-07)
+- **Root cause**: `inflow_threshold_usd=500k` calibrado para large-caps; `inflow_1h_usd=None` hardcodeado; CryptoQuant solo cubre BTC/ETH/etc.
+- **Fix 1**: `inflow_threshold_usd` 500k → 100k en `shared/config/settings.py`
+- **Fix 2**: `inflow_1h_usd = volume_usd / 24` (proxy horario) en `agents/monitor/data_fetcher.py`
+- **Resultado**: scores diferenciados 30-34, correlacionados con `volume_24h_usd`
+- Tokens necesitan ~$2-3M de volumen diario para acercarse al umbral de alerta (70 pts) — correcto para el perfil actual
 
 ## Reglas
 - Nunca modificar /opt/crypto_agent_system directamente

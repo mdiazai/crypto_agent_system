@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     # ── Umbrales de Detección ─────────────────────────────────────────────────
     alert_threshold: float = Field(70.0, ge=0, le=100)
     llm_validation_threshold: float = Field(85.0, ge=0, le=100)
-    inflow_threshold_usd: float = Field(500_000.0, gt=0)
+    inflow_threshold_usd: float = Field(100_000.0, gt=0)
     holder_concentration_threshold: float = Field(60.0, ge=0, le=100)
     short_interest_threshold: float = Field(20.0, ge=0, le=100)
 
