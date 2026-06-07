@@ -1,0 +1,63 @@
+{
+  "name": "Monkey Advisor - Consultas",
+  "nodes": [
+    {
+      "name": "Monkey Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "parameters": { "updates": ["message"] },
+      "credentials": { "telegramApi": { "name": "Monkey Advisor Bot" } },
+      "position": [240, 300]
+    },
+    {
+      "name": "Get System Context",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "parameters": {
+        "resource": "command",
+        "command": "cd /opt/crypto_agent_system && echo '=ESTADO SISTEMA=' && docker compose ps --format '{{.Name}} {{.Status}}' && echo '=CLAUDE.md=' && head -60 CLAUDE.md && echo '=ULTIMAS ALERTAS=' && docker compose exec -T postgres psql -U postgres -d crypto_agent -c \"SELECT token_symbol, score, sent_at FROM alerts ORDER BY sent_at DESC LIMIT 5;\" 2>/dev/null"
+      },
+      "credentials": { "sshPassword": { "name": "VPS Hostinger" } },
+      "position": [460, 300]
+    },
+    {
+      "name": "Claude Monkey Advisor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "anthropic-version", "value": "2023-06-01" },
+          { "name": "content-type",      "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1024,\n  \"system\": \"Sos Monkey Advisor, el agente educativo del lab de IA '11Mkeys'. Tu misión es explicar conceptos técnicos en lenguaje claro y simple, sin jerga, para un founder de negocios inteligente que no es programador de carrera. Trabajás con el proyecto 'Criminal Pumps': un sistema de 7 agentes Python que detecta pumps en criptomonedas corriendo 24/7 en un VPS. Usá analogías de negocios o cotidianas. Máximo 4 párrafos. Terminá siempre con una pregunta de seguimiento o sugerencia de qué más podría querer saber.\",\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Contexto del sistema ahora:\\n{{ $('Get System Context').item.json.stdout }}\\n\\nPregunta del founder: {{ $('Monkey Telegram Trigger').item.json.message.text }}\"\n  }]\n}"
+      },
+      "credentials": { "httpHeaderAuth": { "name": "Anthropic API" } },
+      "position": [700, 300]
+    },
+    {
+      "name": "Send Monkey Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot8829243525:AAGvN7WJsGbM3Hfg0uDAPUog38yALBOghdQ/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"chat_id\":\"6517856768\",\"parse_mode\":\"Markdown\",\"text\":\"🐒 *Monkey Advisor*\\n\\n\" + $json.content[0].text}"
+      },
+      "position": [940, 300]
+    }
+  ],
+  "connections": {
+    "Monkey Telegram Trigger": { "main": [[{ "node": "Get System Context",    "type": "main", "index": 0 }]] },
+    "Get System Context":      { "main": [[{ "node": "Claude Monkey Advisor", "type": "main", "index": 0 }]] },
+    "Claude Monkey Advisor":   { "main": [[{ "node": "Send Monkey Response",  "type": "main", "index": 0 }]] }
+  }
+}
