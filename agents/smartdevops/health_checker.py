@@ -45,11 +45,27 @@ class HealthChecker:
                 transport=transport, base_url="http://localhost", timeout=15.0
             ) as client:
                 snapshot["containers"] = await self._get_container_statuses(client)
-                for service, info in snapshot["containers"].items():
-                    if info["state"] == "running":
-                        errors = await self._get_error_logs(client, info["full_id"])
-                        if errors:
-                            snapshot["error_logs"][service] = errors
+
+                # Fetch logs in parallel with short timeout — Docker log endpoint
+                # hangs on this VPS (same issue as `docker compose logs`)
+                running = {
+                    svc: info
+                    for svc, info in snapshot["containers"].items()
+                    if info["state"] == "running"
+                }
+                log_tasks = {
+                    svc: asyncio.create_task(
+                        self._get_error_logs(client, info["full_id"])
+                    )
+                    for svc, info in running.items()
+                }
+                if log_tasks:
+                    results = await asyncio.gather(
+                        *log_tasks.values(), return_exceptions=True
+                    )
+                    for svc, result in zip(log_tasks.keys(), results):
+                        if isinstance(result, list) and result:
+                            snapshot["error_logs"][svc] = result
         except Exception as e:
             log.warning("health_checker.docker_unavailable", error=str(e))
             snapshot["containers"]["_docker_error"] = str(e)
@@ -93,10 +109,11 @@ class HealthChecker:
                 params={
                     "stdout": "true",
                     "stderr": "true",
+                    "follow": "false",
                     "tail": "50",
                     "timestamps": "false",
                 },
-                timeout=10.0,
+                timeout=3.0,
             )
             text_content = _parse_docker_logs(r.content)
             errors = [
