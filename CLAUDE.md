@@ -98,7 +98,8 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - `agents/monitor/onchain_client.py`: `ETHERSCAN_BASE = https://api.etherscan.io/v2/api`
 - ZINC/USDT warning recurrente — pendiente limpiar de `token_candidates`
 - Pendiente: chainid en BscClient + OnchainClient fallback chain
-- **SmartDevops Agent: deployado y operativo ✅** — primer diagnóstico: orchestrator en crash loop (critical)
+- **SmartDevops Agent: deployado y operativo ✅** — primer diagnóstico: orchestrator en crash loop (critical) → resuelto con rebuild
+- **Orchestrator: estable ✅** — crash loop causado por migración 0007 faltante en imagen; fix: rebuild
 
 ## Reglas
 - Nunca modificar /opt/crypto_agent_system directamente

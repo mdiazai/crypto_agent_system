@@ -2006,4 +2006,77 @@ Pushed a `origin/main`. VPS actualizado con `git pull` y `--force-recreate` en m
 - Límites de CPU permanentes en `docker-compose.yml` (deploy.resources no soportado sin Swarm)
 - Scorer aplanado — todos los tokens con `detection_score=25`
 - ZINC/USDT warning recurrente — limpiar de `token_candidates`
+
+---
+
+## Sesión 2026-06-07 — SmartDevops Agent: build, deploy y primer diagnóstico real
+
+### Objetivo de la sesión
+Construir e integrar el SmartDevops Agent: un agente Python autónomo que corre cada 30 minutos,
+diagnostica la salud del sistema con Claude, y propone fixes al operador vía Telegram para
+aprobación humana antes de ejecutar.
+
+### Arquitectura implementada
+
+**Agente Python (`agents/smartdevops/`)**
+- `health_checker.py` — recolecta estado del sistema via Docker API (unix socket), PostgreSQL y Redis
+- `claude_diagnostics.py` — formatea snapshot → llama Claude API → parsea respuesta JSON `{severity, diagnosis, fix_command}`
+- `telegram_notifier.py` — envía propuesta con teclado inline `sd_approve` / `sd_ignore`, guarda comando en Redis SETEX 3600
+- `smartdevops_agent.py` — APScheduler cada 30 min, salta ciclo si ya hay comando pendiente en Redis
+- `Dockerfile` — python:3.11-slim, Docker API via socket (sin binario docker)
+
+**Infraestructura**
+- `shared/models/diagnostics_log.py` — tabla historial de diagnósticos
+- `alembic/versions/0007_add_diagnostics_log.py` — migración
+- `docker-compose.yml` — servicio `smartdevops` con `/var/run/docker.sock` montado, límite 0.5 CPU
+- `smartdevops_agent_v1.json` — workflow n8n standalone para aprobación/rechazo
+- Bot nuevo: `@ElevenMkeys_SmartDevops_bot` — token `8141614556:AAEbY07qhTW0idh5BaH5fMjv2JPt2PY1mV0`
+
+**Flujo completo**
+1. SmartDevops detecta problema → Claude diagnóstica → guarda comando en Redis → envía Telegram con botones
+2. Operador toca ✅ Aprobar → n8n recibe callback → SSH al VPS → ejecuta comando → notifica resultado
+3. Operador toca ❌ Ignorar → n8n → SSH DEL Redis key → notifica descartado
+
+### Problemas encontrados y soluciones
+
+**Docker API logs cuelga igual que `docker compose logs`**
+- El endpoint `/containers/{id}/logs` también se cuelga en este VPS
+- Fix: `follow=false`, timeout 3s, fetching en paralelo con `asyncio.gather`
+- Resultado: todos los containers en ~3s en vez de 10s × N
+
+**Rebase interactivo abierto de sesión anterior**
+- `git status` mostró "no branch, rebasing master"
+- Fix: `git rebase --abort` + re-aplicar cambios en master
+
+**WEBHOOK_URL n8n apuntaba a Cloudflare**
+- La URL `prague-kijiji-package-top.trycloudflare.com` estaba hardcodeada en docker-compose.yml local
+- Fix: corregido en local + VPS + commit pusheado → `https://n8n.11mkeys.ai/`
+- VPS requirió stop + start (no solo up -d) para tomar el nuevo env
+
+**Duplicado TELEGRAM_BOT_TOKEN en .env del VPS**
+- El token original tenía doble `::` (`8766465123::AAEg...`)
+- Fix: creado nuevo bot `@ElevenMkeys_SmartDevops_bot`, limpiado .env con `uniq`
+
+**Migración manual rompió el orchestrator**
+- Corrimos `CREATE TABLE diagnostics_log` + `UPDATE alembic_version SET version_num='0007'` manualmente
+- El orchestrator corre alembic al iniciar pero su imagen fue construida antes de que existiera `0007_add_diagnostics_log.py`
+- Error: `Can't locate revision identified by '0007'` → crash loop
+- Fix: `docker compose build orchestrator && docker compose up -d --no-deps orchestrator`
+
+### Primer diagnóstico real del SmartDevops Agent
+- Severity: **CRITICAL**
+- Diagnóstico: orchestrator en crash loop (reinicios cada ~18 segundos)
+- Comando propuesto: `docker logs crypto_agent_system-orchestrator-1 --tail 30 --no-color 2>&1`
+- Acción: investigación manual → rebuild orchestrator → resuelto ✅
+
+### Estado final
+- SmartDevops Agent corriendo, ciclo 30 min activo
+- Orchestrator recuperado y estable
+- WEBHOOK_URL permanente en `n8n.11mkeys.ai`
+- Bot `@ElevenMkeys_SmartDevops_bot` con webhook registrado en n8n
+
+### Pendientes
+- Scorer aplanado — todos los tokens con `detection_score=25` — investigar signals pipeline
+- ZINC/USDT warning recurrente — limpiar de `token_candidates`
+- Límites de CPU permanentes en docker-compose.yml
 - SmartDevops Agent — construcción pendiente
