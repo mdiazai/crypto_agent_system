@@ -232,7 +232,7 @@ services:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - WEBHOOK_URL=https://prague-kijiji-package-top.trycloudflare.com/
+      - WEBHOOK_URL=https://n8n.11mkeys.ai/
       - GENERIC_TIMEZONE=America/Montevideo
       - N8N_LOG_LEVEL=info
       - EXECUTIONS_DATA_SAVE_ON_ERROR=all

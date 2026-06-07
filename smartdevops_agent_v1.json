@@ -1,0 +1,92 @@
+{
+  "name": "11Mkeys SmartDevops Agent",
+  "nodes": [
+    {
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "parameters": {
+        "updates": ["callback_query"]
+      },
+      "credentials": { "telegramApi": { "name": "SmartDevops Bot" } },
+      "position": [240, 300]
+    },
+    {
+      "name": "Route Command",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.callback_query?.data }}",
+        "rules": { "rules": [
+          { "value2": "sd_approve", "output": 0 },
+          { "value2": "sd_ignore",  "output": 1 }
+        ]}
+      },
+      "position": [460, 300]
+    },
+    {
+      "name": "SD Execute Command",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "parameters": {
+        "resource": "command",
+        "command": "CMD=$(timeout 5 docker exec crypto_agent_system-redis-1 redis-cli GET smartdevops:pending_command) && if [ -z \"$CMD\" ]; then echo 'No hay comando pendiente en Redis'; else echo \"Ejecutando: $CMD\" && bash -c \"$CMD\" 2>&1 | head -20 && timeout 5 docker exec crypto_agent_system-redis-1 redis-cli DEL smartdevops:pending_command && echo '---EJECUTADO---'; fi"
+      },
+      "credentials": { "sshPassword": { "name": "VPS Hostinger" } },
+      "position": [700, 180]
+    },
+    {
+      "name": "SD Notify Executed",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "parameters": {
+        "chatId": "6517856768",
+        "text": "=✅ *SmartDevops — Comando ejecutado*\n\n```\n{{ $json.stdout ? $json.stdout.substring(0, 2000) : 'Sin output' }}\n```",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "credentials": { "telegramApi": { "name": "SmartDevops Bot" } },
+      "position": [940, 180]
+    },
+    {
+      "name": "SD Ignore Command",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "parameters": {
+        "resource": "command",
+        "command": "timeout 5 docker exec crypto_agent_system-redis-1 redis-cli DEL smartdevops:pending_command && echo 'Comando ignorado y eliminado de Redis'"
+      },
+      "credentials": { "sshPassword": { "name": "VPS Hostinger" } },
+      "position": [700, 420]
+    },
+    {
+      "name": "SD Notify Ignored",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "parameters": {
+        "chatId": "6517856768",
+        "text": "❌ *SmartDevops — Propuesta ignorada*\n\nEl comando fue descartado.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "credentials": { "telegramApi": { "name": "SmartDevops Bot" } },
+      "position": [940, 420]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "Route Command", "type": "main", "index": 0 }]]
+    },
+    "Route Command": {
+      "main": [
+        [{ "node": "SD Execute Command", "type": "main", "index": 0 }],
+        [{ "node": "SD Ignore Command",  "type": "main", "index": 0 }]
+      ]
+    },
+    "SD Execute Command": {
+      "main": [[{ "node": "SD Notify Executed", "type": "main", "index": 0 }]]
+    },
+    "SD Ignore Command": {
+      "main": [[{ "node": "SD Notify Ignored", "type": "main", "index": 0 }]]
+    }
+  }
+}
