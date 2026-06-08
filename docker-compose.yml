@@ -99,6 +99,11 @@ services:
     volumes:
       - ./orchestrator:/app/orchestrator:ro
       - ./shared:/app/shared:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 256m
 
   discovery:
     build:
@@ -127,6 +132,11 @@ services:
     volumes:
       - ./agents/monitor:/app/agents/monitor:ro
       - ./shared:/app/shared:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512m
 
   detector:
     build:
@@ -139,6 +149,11 @@ services:
     volumes:
       - ./agents/detector:/app/agents/detector:ro
       - ./shared:/app/shared:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 256m
 
   scorer:
     build:
@@ -153,6 +168,11 @@ services:
     volumes:
       - ./agents/scorer:/app/agents/scorer:ro
       - ./shared:/app/shared:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 256m
 
   executor:
     build:
@@ -215,8 +235,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.5"
-          memory: 256M
+          cpus: '0.50'
+          memory: 256m
 
   # ─── n8n Automation ──────────────────────────────────────────────────────────
 
@@ -248,6 +268,11 @@ services:
     user: "1000:1000"
     networks:
       - default
+    deploy:
+      resources:
+        limits:
+          cpus: '1.00'
+          memory: 1g
 
 volumes:
   postgres_data:
