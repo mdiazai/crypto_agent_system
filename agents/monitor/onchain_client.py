@@ -1,10 +1,10 @@
 """
 Clientes on-chain multi-fuente (gratuitos, sin Glassnode):
-  - Coinglass   : funding rate, open interest, long/short ratio (sin API key)
-  - Etherscan V2: holder concentration ERC-20 Ethereum (chainid=1, API key gratuita)
-  - BscClient   : holder concentration BEP-20 BNB Chain (chainid=56, misma API key)
-  - Helius      : holder concentration SPL (Solana, API key gratuita)
-  - CryptoQuant : exchange inflow (API key gratuita con registro)
+  - CCXTDerivatives: funding rate, open interest via MEXC/Bitget perpetuals (reemplaza Coinglass)
+  - Etherscan V2  : holder concentration ERC-20 Ethereum (chainid=1, API key gratuita)
+  - BscClient     : holder concentration BEP-20 BNB Chain (chainid=56, misma API key)
+  - Helius        : holder concentration SPL (Solana, API key gratuita)
+  - CryptoQuant   : exchange inflow (API key gratuita con registro)
 
 Todos los métodos devuelven None si la fuente no está disponible o falla.
 El sistema continúa normalmente usando señales alternativas.
@@ -19,10 +19,11 @@ from shared.utils.retry import http_retry
 
 log = structlog.get_logger(__name__)
 
-COINGLASS_BASE      = "https://open-api.coinglass.com/public/v2"
 ETHERSCAN_BASE      = "https://api.etherscan.io/v2/api"
 HELIUS_RPC_BASE     = "https://mainnet.helius-rpc.com"
 CRYPTOQUANT_BASE    = "https://api.cryptoquant.com/v1"
+
+_CACHE_MISS = object()  # sentinel para distinguir "no cacheado" de None cacheado
 
 
 def _detect_chain(contract_address: str) -> str:
@@ -38,83 +39,118 @@ def _detect_chain(contract_address: str) -> str:
     return "unknown"
 
 
-# ── Coinglass ─────────────────────────────────────────────────────────────────
+# ── CCXTDerivatives ───────────────────────────────────────────────────────────
 
-class CoinglassClient:
-    """Datos de derivados cross-exchange. Endpoints públicos, sin API key.
+class CCXTDerivativesClient:
+    """Funding rate y open interest via CCXT (MEXC + Bitget perpetuals).
 
-    Devuelve None para tokens pequeños que Coinglass no cubre (500/404 esperados).
-    No se reintentan errores HTTP — solo errores de red.
+    Reemplaza Coinglass para small-caps que no están en esa plataforma.
+    None silencioso si el token no tiene contrato perpetuo — no es error.
+    Cache Redis 5 min para no repetir llamadas en cada ciclo del Monitor.
     """
 
-    async def _get(self, client: httpx.AsyncClient, endpoint: str, params: dict) -> dict | None:
+    _PAIR_SUFFIX = "/USDT:USDT"
+
+    def __init__(self) -> None:
+        import ccxt.async_support as ccxt_async
+        self._mexc = ccxt_async.mexc({
+            "apiKey": settings.mexc_api_key.get_secret_value(),
+            "secret": settings.mexc_secret.get_secret_value(),
+            "enableRateLimit": True,
+            "options": {"defaultType": "swap"},
+        })
+        self._bitget = ccxt_async.bitget({
+            "apiKey": settings.bitget_api_key.get_secret_value(),
+            "secret": settings.bitget_secret.get_secret_value(),
+            "password": settings.bitget_passphrase.get_secret_value(),
+            "enableRateLimit": True,
+            "options": {"defaultType": "swap"},
+        })
+        self._redis = None
+
+    async def _redis_client(self):
+        if self._redis is None:
+            import redis.asyncio as aioredis
+            self._redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+        return self._redis
+
+    async def _cache_get(self, key: str):
+        """Retorna el valor cacheado (float o None), o _CACHE_MISS si no existe."""
         try:
-            resp = await client.get(
-                f"{COINGLASS_BASE}/{endpoint}",
-                params=params,
-                headers={"accept": "application/json"},
-                timeout=8,
-            )
-            if resp.status_code >= 400:
-                return None  # token sin datos en Coinglass — no reintentar
-            return resp.json()
-        except httpx.TimeoutException:
-            return None
+            r = await self._redis_client()
+            val = await r.get(key)
+            if val is None:
+                return _CACHE_MISS
+            return None if val == "null" else float(val)
         except Exception:
-            return None
+            return _CACHE_MISS
+
+    async def _cache_set(self, key: str, value: Optional[float]) -> None:
+        try:
+            r = await self._redis_client()
+            await r.setex(key, 300, "null" if value is None else str(value))
+        except Exception:
+            pass
 
     async def get_funding_rate(self, symbol: str) -> Optional[float]:
-        """Funding rate promedio cross-exchange (fracción decimal). None si falla."""
-        try:
-            async with httpx.AsyncClient() as client:
-                data = await self._get(client, "indicator/funding_avg", {"symbol": symbol.upper()})
-            if not data:
-                return None
-            rows = data.get("data", [])
-            values = [r["rate"] for r in rows if r.get("rate") is not None]
-            return sum(values) / len(values) if values else None
-        except Exception:
-            log.debug("coinglass.funding_rate_failed", symbol=symbol)
-            return None
+        """Funding rate del perpetuo (fracción decimal). None si no existe contrato."""
+        key = f"deriv:funding:{symbol}"
+        cached = await self._cache_get(key)
+        if cached is not _CACHE_MISS:
+            return cached
 
-    async def get_long_short_ratio(self, symbol: str) -> Optional[float]:
-        """Ratio longs/shorts (cuenta). > 1 = más longs. None si falla."""
-        try:
-            async with httpx.AsyncClient() as client:
-                data = await self._get(
-                    client,
-                    "indicator/long_short_account_ratio",
-                    {"symbol": symbol.upper(), "interval": "0h", "limit": 1},
-                )
-            if not data:
-                return None
-            rows = data.get("data", [])
-            if not rows:
-                return None
-            ratio = rows[-1].get("longRatio")
-            short = rows[-1].get("shortRatio")
-            if ratio and short and float(short) > 0:
-                return float(ratio) / float(short)
-            return float(ratio) if ratio else None
-        except Exception:
-            log.debug("coinglass.long_short_failed", symbol=symbol)
-            return None
+        pair = f"{symbol}{self._PAIR_SUFFIX}"
+        result = None
+        for exchange in (self._mexc, self._bitget):
+            try:
+                data = await exchange.fetch_funding_rate(pair)
+                val = data.get("fundingRate")
+                if val is not None:
+                    result = float(val)
+                    break
+            except Exception:
+                continue
+
+        await self._cache_set(key, result)
+        return result
 
     async def get_open_interest(self, symbol: str) -> Optional[float]:
-        """OI total agregado cross-exchange (USD). None si falla."""
-        try:
-            async with httpx.AsyncClient() as client:
-                data = await self._get(
-                    client, "indicator/open_interest", {"symbol": symbol.upper()}
-                )
-            if not data:
-                return None
-            rows = data.get("data", [])
-            total = sum(r.get("openInterest", 0) for r in rows)
-            return float(total) if total else None
-        except Exception:
-            log.debug("coinglass.open_interest_failed", symbol=symbol)
-            return None
+        """Open interest en USD. None si no existe contrato perpetuo."""
+        key = f"deriv:oi:{symbol}"
+        cached = await self._cache_get(key)
+        if cached is not _CACHE_MISS:
+            return cached
+
+        pair = f"{symbol}{self._PAIR_SUFFIX}"
+        result = None
+        for exchange in (self._mexc, self._bitget):
+            try:
+                data = await exchange.fetch_open_interest(pair)
+                val = data.get("openInterestValue")
+                if val is not None:
+                    result = float(val)
+                    break
+            except Exception:
+                continue
+
+        await self._cache_set(key, result)
+        return result
+
+    async def get_long_short_ratio(self, symbol: str) -> Optional[float]:
+        """CCXT no expone L/S ratio directamente — retorna None."""
+        return None
+
+    async def close(self) -> None:
+        for ex in (self._mexc, self._bitget):
+            try:
+                await ex.close()
+            except Exception:
+                pass
+        if self._redis:
+            try:
+                await self._redis.aclose()
+            except Exception:
+                pass
 
 
 # ── Etherscan V2 (Ethereum, chainid=1) ────────────────────────────────────────
@@ -454,10 +490,10 @@ class CryptoQuantClient:
 # ── Fachada unificada ─────────────────────────────────────────────────────────
 
 class OnchainClient:
-    """Combina Coinglass + Moralis + Etherscan V2 + BscClient + Helius + CryptoQuant."""
+    """Combina CCXTDerivatives + Moralis + Etherscan V2 + BscClient + Helius + CryptoQuant."""
 
     def __init__(self) -> None:
-        self.coinglass   = CoinglassClient()
+        self.derivatives = CCXTDerivativesClient()
         self.moralis     = MoralisClient()
         self.etherscan   = EtherscanClient()
         self.bsc         = BscClient()
@@ -465,13 +501,13 @@ class OnchainClient:
         self.cryptoquant = CryptoQuantClient()
 
     async def get_funding_rate(self, symbol: str) -> Optional[float]:
-        return await self.coinglass.get_funding_rate(symbol)
+        return await self.derivatives.get_funding_rate(symbol)
 
     async def get_long_short_ratio(self, symbol: str) -> Optional[float]:
-        return await self.coinglass.get_long_short_ratio(symbol)
+        return await self.derivatives.get_long_short_ratio(symbol)
 
     async def get_open_interest(self, symbol: str) -> Optional[float]:
-        return await self.coinglass.get_open_interest(symbol)
+        return await self.derivatives.get_open_interest(symbol)
 
     async def get_holder_count(self, contract_address: Optional[str] = None) -> Optional[int]:
         return await self.etherscan.get_holder_count(contract_address)
