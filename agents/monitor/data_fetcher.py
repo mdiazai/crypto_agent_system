@@ -111,10 +111,12 @@ class DataFetcher:
             cq_inflow,
             ls_ratio,
             cg_oi,
+            deriv_funding_rate,
         ) = await asyncio.gather(
             self._onchain.get_exchange_inflow(symbol),
             self._onchain.get_long_short_ratio(symbol),
             self._onchain.get_open_interest(symbol),
+            self._onchain.get_funding_rate(symbol),
             return_exceptions=False,
         )
 
@@ -164,10 +166,26 @@ class DataFetcher:
         if inflow_4h is None and volume_usd:
             inflow_4h = volume_usd * 0.15
 
-        # OI: Coinglass tiene prioridad; fallback a CCXT
+        # OI: CCXTDerivatives tiene prioridad; fallback a CCXT spot
         oi_usd = cg_oi or (open_interest.get("openInterestValue") if open_interest else None)
 
-        onchain_available = ls_ratio is not None or cg_oi is not None or cq_inflow is not None
+        # Funding: CCXTDerivatives (perpetuos) tiene prioridad; fallback a CCXT spot
+        spot_funding_rate = funding.get("fundingRate") if funding else None
+        funding_rate = deriv_funding_rate if deriv_funding_rate is not None else spot_funding_rate
+        log.debug(
+            "funding.source",
+            symbol=symbol,
+            deriv_funding=deriv_funding_rate,
+            spot_funding=spot_funding_rate,
+            final=funding_rate,
+        )
+
+        onchain_available = (
+            ls_ratio is not None
+            or cg_oi is not None
+            or cq_inflow is not None
+            or deriv_funding_rate is not None
+        )
 
         snapshot = TokenSnapshot(
             symbol=symbol,
@@ -183,7 +201,7 @@ class DataFetcher:
             holder_top10_pct=holder_top10_pct,
             holder_source="db" if holder_top10_pct is not None else None,
             total_holders=None,
-            funding_rate=funding.get("fundingRate") if funding else None,
+            funding_rate=funding_rate,
             open_interest_usd=oi_usd,
             long_short_ratio=ls_ratio,
             onchain_available=onchain_available,
