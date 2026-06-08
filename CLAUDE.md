@@ -81,32 +81,45 @@ completo de 5 pasos con los workflows JSON listos para importar.
 ## Infraestructura VPS — Cambios importantes (2026-06-06)
 - `WEBHOOK_URL` n8n: `https://n8n.11mkeys.ai/` (permanente en `docker-compose.yml`)
 - DNS n8n: `8.8.8.8`, `8.8.4.4` (permanente en `docker-compose.yml`)
-- Límites de CPU activos (runtime): monitor 0.5 CPU, n8n 1.0 CPU
+- Límites CPU/memoria permanentes en `docker-compose.yml` — 6 servicios (2026-06-08)
 - `docker compose logs` se cuelga en este VPS — usar `tail` directo al archivo JSON del contenedor
 - `docker compose exec postgres` se cuelga — usar `docker exec` directo con `timeout`
 
 ## Comandos seguros para este VPS
 - Logs: `tail -N /var/lib/docker/containers/CONTAINER_ID/*-json.log`
+- LogPath (obtener ruta real): `docker inspect CONTAINER --format "{{.LogPath}}"`
 - Status DB: `timeout 10 docker exec crypto_agent_system-postgres-1 psql -U postgres -d crypto_agent -c "QUERY"`
 - Status containers: `timeout 8 docker ps --format ...`
 - **NUNCA usar:** `docker compose logs` (se cuelga), `docker compose exec postgres` (se cuelga)
 
-## Estado del sistema (2026-06-07)
+## Estado del sistema (2026-06-08)
 - Monitor: 84 tokens activos, 83 publicados, 0 errores por ciclo
-- `detection_score` diferenciado ✅ — rango 30-34 correlacionado con volumen (fix aplicado)
+- `detection_score` diferenciado ✅ — score máximo 41.87 (GUA), subió de 34.73 post-fix funding
 - `holder_concentration_pct` activo vía Moralis ✅
-- `agents/monitor/onchain_client.py`: `ETHERSCAN_BASE = https://api.etherscan.io/v2/api`
-- ZINC/USDT warning recurrente — pendiente limpiar de `token_candidates`
+- `agents/monitor/onchain_client.py`: CoinglassClient → **CCXTDerivativesClient** ✅ (MEXC/Bitget perpetuos, cache Redis 5 min)
+- `agents/monitor/data_fetcher.py`: `get_funding_rate()` wired al pipeline ✅ — fallback a spot si None
+- ZINC/USDT: removido de `token_candidates` (`status='removed'`) ✅
 - Pendiente: chainid en BscClient + OnchainClient fallback chain
-- **SmartDevops Agent: deployado y operativo ✅** — primer diagnóstico: orchestrator en crash loop (critical) → resuelto con rebuild
-- **Orchestrator: estable ✅** — crash loop causado por migración 0007 faltante en imagen; fix: rebuild
+- **SmartDevops Agent: deployado y operativo ✅**
+- **Orchestrator: estable ✅**
+- **Claude Code CLI: instalado en VPS** — v2.1.168, auth via `ANTHROPIC_API_KEY` en `~/.bashrc`
+- Umbral de alerta (70 pts): no alcanzado — requiere token con volumen > $3M diario
 
 ## Fix scorer aplanado (2026-06-07)
 - **Root cause**: `inflow_threshold_usd=500k` calibrado para large-caps; `inflow_1h_usd=None` hardcodeado; CryptoQuant solo cubre BTC/ETH/etc.
 - **Fix 1**: `inflow_threshold_usd` 500k → 100k en `shared/config/settings.py`
 - **Fix 2**: `inflow_1h_usd = volume_usd / 24` (proxy horario) en `agents/monitor/data_fetcher.py`
-- **Resultado**: scores diferenciados 30-34, correlacionados con `volume_24h_usd`
-- Tokens necesitan ~$2-3M de volumen diario para acercarse al umbral de alerta (70 pts) — correcto para el perfil actual
+- **Resultado**: scores diferenciados, máximo 41.87 pts post-fix funding pipeline
+
+## CPU/memoria limits (docker-compose.yml) — 2026-06-08
+| Servicio | CPUs | Memoria |
+|---|---|---|
+| monitor | 0.50 | 512m |
+| detector | 0.30 | 256m |
+| scorer | 0.30 | 256m |
+| orchestrator | 0.30 | 256m |
+| smartdevops | 0.50 | 256m |
+| n8n | 1.00 | 1g |
 
 ## Reglas
 - Nunca modificar /opt/crypto_agent_system directamente

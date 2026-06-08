@@ -2194,5 +2194,128 @@ docker compose up -d --no-deps detector monitor
 ```
 
 ### Pendientes
-- ZINC/USDT warning recurrente — limpiar de `token_candidates`
-- Límites de CPU permanentes en docker-compose.yml
+- ~~ZINC/USDT~~ — resuelto sesión siguiente ✅
+- ~~Límites de CPU permanentes~~ — resuelto sesión siguiente ✅
+
+---
+
+## Sesión 2026-06-08 — Semana 1 Track A: Fix funding pipeline + infraestructura
+
+### Objetivo
+Completar señales de calidad del scorer. Reemplazar Coinglass deprecado,
+limpiar datos sucios, fijar límites de recursos, instalar Claude Code en VPS.
+
+### 1. CCXTDerivativesClient (reemplaza CoinglassClient)
+
+**Motivación:** Coinglass no cubre small-caps — todos los calls de `get_funding_rate`,
+`get_long_short_ratio` y `get_open_interest` devolvían None para los 84 tokens monitoreados.
+
+**Implementación en `agents/monitor/onchain_client.py`:**
+- `CCXTDerivativesClient` usa CCXT async (MEXC swap + Bitget swap)
+- `get_funding_rate(symbol)`: intenta `{symbol}/USDT:USDT` en MEXC, fallback Bitget
+- `get_open_interest(symbol)`: mismo patrón
+- Cache Redis TTL=300s: key `deriv:funding:{symbol}` / `deriv:oi:{symbol}`
+- Sentinel `"null"` para cachear resultados None (evita retry por token sin perpetuo)
+- `get_long_short_ratio()` retorna None — CCXT no expone este dato
+- `scripts/test_derivatives.py`: verifica contra 3 tokens con vol > $500k
+
+**Resultado test en VPS:**
+```
+STAR — funding_rate: 0.0001  open_interest: None
+GUA  — funding_rate: 0.00015 open_interest: 850000.0
+CLO  — funding_rate: None    open_interest: None
+```
+Al menos 2 tokens con datos reales de perpetuos ✅
+
+### 2. Bug: get_funding_rate no estaba conectado al pipeline
+
+**Root cause identificado:** `CCXTDerivativesClient.get_funding_rate()` existía pero
+**nunca era llamado** desde `data_fetcher.py`. El `funding_rate` en el snapshot
+venía exclusivamente de `_fetch_funding_rate(exchange, pair)` con par `/USDT` (spot),
+que devuelve None para casi todos los small-caps.
+
+**Fix en `agents/monitor/data_fetcher.py`:**
+```python
+# Antes — solo 3 calls en el gather:
+(cq_inflow, ls_ratio, cg_oi) = await asyncio.gather(
+    self._onchain.get_exchange_inflow(symbol),
+    self._onchain.get_long_short_ratio(symbol),
+    self._onchain.get_open_interest(symbol),
+)
+
+# Después — 4 calls:
+(cq_inflow, ls_ratio, cg_oi, deriv_funding_rate) = await asyncio.gather(
+    self._onchain.get_exchange_inflow(symbol),
+    self._onchain.get_long_short_ratio(symbol),
+    self._onchain.get_open_interest(symbol),
+    self._onchain.get_funding_rate(symbol),       # ← nuevo
+)
+
+# Prioridad: perpetuos > spot
+spot_funding_rate = funding.get("fundingRate") if funding else None
+funding_rate = deriv_funding_rate if deriv_funding_rate is not None else spot_funding_rate
+```
+
+**Lección:** el root cause no era el cliente sino la falta de conexión al pipeline.
+Pedir "mostrar el código antes de modificar" antes de tocar bugs no obvios.
+
+**Resultado post-fix:**
+```
+GUA: 34.73 → 41.87 pts  (funding_rate = 0.00015 → funding_s = 12 pts en long_pump)
+```
+
+### 3. Limpieza ZINC/USDT
+
+```sql
+UPDATE token_candidates SET status='removed' WHERE symbol='ZINC';
+```
+
+Warning recurrente `data_fetcher.no_ticker symbol=ZINC` eliminado del ciclo del monitor.
+
+### 4. CPU/memoria limits permanentes en docker-compose.yml
+
+Bloque `deploy.resources.limits` agregado a 6 servicios:
+
+| Servicio | CPUs | Memoria |
+|---|---|---|
+| monitor | 0.50 | 512m |
+| detector | 0.30 | 256m |
+| scorer | 0.30 | 256m |
+| orchestrator | 0.30 | 256m |
+| smartdevops | 0.50 | 256m |
+| n8n | 1.00 | 1g |
+
+Aplicado con `docker compose up -d` sin rebuild. Verificado con `docker stats --no-stream`.
+
+### 5. Claude Code CLI en VPS
+
+```bash
+npm install -g @anthropic-ai/claude-code   # → v2.1.168
+echo 'export ANTHROPIC_API_KEY=...' >> ~/.bashrc
+source ~/.bashrc
+echo "responde solo: ok" | claude --print  # → ok ✅
+```
+
+Auth via API key (no OAuth) — VPS sin browser. Pieza clave para el flujo autónomo:
+Claude Code escribe código en VPS, operador aprueba deploys desde Telegram.
+
+### Commits de la sesión
+
+```
+59aa1a8 fix: scorer aplanado — threshold 500k→100k, inflow_1h proxy
+97c48a0 fix: replace CoinglassClient with CCXTDerivativesClient
+3516417 infra: permanent CPU/memory limits in docker-compose
+6f9d7c2 fix: wire CCXTDerivativesClient.get_funding_rate into data_fetcher pipeline
+```
+
+### Estado post-sesión
+
+- Score máximo: **41.87 pts (GUA)** vs 34.73 pre-fix
+- Umbral de alerta 70 pts: no alcanzado — correcto para small-caps actuales
+- 14/14 contenedores Up, límites de recursos aplicados
+- Claude Code instalado en VPS y funcional
+
+### Pendientes Track B
+- Crear `@ElevenMkeys_PM_bot` en BotFather (Marce desde cel)
+- Estructura `/opt/11mkeys_lab` + tablas PostgreSQL para PM Agent
+- PM Agent base con comandos `/estado`, `/tareas`, `/blockers`
