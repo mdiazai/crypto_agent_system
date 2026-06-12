@@ -8,6 +8,10 @@ from sqlalchemy import text
 from shared.config import settings
 from shared.models import get_session
 
+# Umbrales de inactividad para alertas
+_MONITOR_STALE_MIN = 10    # monitor debería ciclar cada 5 min
+_DISCOVERY_STALE_H = 26    # discovery corre 1×/día a las 2 AM UTC
+
 log = structlog.get_logger(__name__)
 
 DOCKER_SOCKET = "/var/run/docker.sock"
@@ -37,6 +41,7 @@ class HealthChecker:
             "error_logs": {},
             "postgres": {},
             "redis_health": {},
+            "agent_activity": {},
         }
 
         transport = httpx.AsyncHTTPTransport(uds=DOCKER_SOCKET)
@@ -72,6 +77,7 @@ class HealthChecker:
 
         snapshot["postgres"] = await self._check_postgres()
         snapshot["redis_health"] = await self._check_redis()
+        snapshot["agent_activity"] = await self._check_agent_activity()
 
         return snapshot
 
@@ -157,3 +163,61 @@ class HealthChecker:
             }
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    async def _check_agent_activity(self) -> dict:
+        """Detecta agentes inactivos: monitor por DB, scorer/executor por Redis heartbeat."""
+        import redis.asyncio as aioredis
+
+        result: dict = {}
+        now = datetime.now(timezone.utc)
+
+        # Redis heartbeats (TTL > 0 = agente vivo)
+        try:
+            r = aioredis.from_url(settings.redis_url, decode_responses=True)
+            scorer_ttl   = await r.ttl("scorer:heartbeat")
+            executor_ttl = await r.ttl("executor:heartbeat")
+            await r.aclose()
+            result["scorer_heartbeat"]   = "ok" if scorer_ttl > 0 else "missing"
+            result["executor_heartbeat"] = "ok" if executor_ttl > 0 else "missing"
+        except Exception as e:
+            result["heartbeat_error"] = str(e)
+
+        # Actividad del monitor: MAX(last_checked) en token_candidates activos
+        try:
+            async with get_session() as session:
+                row = await session.execute(
+                    text("SELECT MAX(last_checked) FROM token_candidates WHERE status='active'")
+                )
+                last_checked = row.scalar()
+            if last_checked:
+                if last_checked.tzinfo is None:
+                    last_checked = last_checked.replace(tzinfo=timezone.utc)
+                monitor_age = round((now - last_checked).total_seconds() / 60, 1)
+                result["monitor_last_cycle_min"] = monitor_age
+                result["monitor_ok"] = monitor_age <= _MONITOR_STALE_MIN
+            else:
+                result["monitor_last_cycle_min"] = None
+                result["monitor_ok"] = False
+        except Exception as e:
+            result["monitor_db_error"] = str(e)
+
+        # Actividad de discovery: MAX(created_at) en token_candidates
+        try:
+            async with get_session() as session:
+                row = await session.execute(
+                    text("SELECT MAX(created_at) FROM token_candidates")
+                )
+                last_created = row.scalar()
+            if last_created:
+                if last_created.tzinfo is None:
+                    last_created = last_created.replace(tzinfo=timezone.utc)
+                discovery_age = round((now - last_created).total_seconds() / 3600, 1)
+                result["discovery_last_scan_h"] = discovery_age
+                result["discovery_ok"] = discovery_age <= _DISCOVERY_STALE_H
+            else:
+                result["discovery_last_scan_h"] = None
+                result["discovery_ok"] = False
+        except Exception as e:
+            result["discovery_db_error"] = str(e)
+
+        return result

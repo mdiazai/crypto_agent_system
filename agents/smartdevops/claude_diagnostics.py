@@ -17,24 +17,42 @@ REGLAS CRÍTICAS — comandos prohibidos que CUELGAN el VPS:
 - NUNCA: docker compose exec redis
 
 Comandos SEGUROS para el fix_command:
-- docker ps --format "table {{.Names}}\\t{{.Status}}"
-- docker logs crypto_agent_system-SERVICE-1 --tail 30 --no-color 2>&1
 - docker restart crypto_agent_system-SERVICE-1
 - docker start crypto_agent_system-SERVICE-1
+- docker logs crypto_agent_system-SERVICE-1 --tail 30 --no-color 2>&1
 - timeout 10 docker exec crypto_agent_system-postgres-1 psql -U postgres -d crypto_agent -c "QUERY"
 - timeout 5 docker exec crypto_agent_system-redis-1 redis-cli COMMAND
 
-Servicios del sistema: orchestrator, discovery, monitor, detector, scorer, executor, learner, dashboard, postgres, redis.
+Servicios: orchestrator, discovery, monitor, detector, scorer, executor, learner, dashboard, postgres, redis.
 
-Problemas a detectar:
-1. Contenedores en state != "running" o con "Restarting" en status
-2. Logs con ERROR/CRITICAL/Exception repetidos (más de 5 en últimos 50 líneas = problema real)
-3. PostgreSQL inaccesible o con 0 tokens activos
-4. Redis sin memoria o caído
+REGLAS DE DIAGNÓSTICO — aplicar en orden:
 
-Si todo parece normal, severity = "ok". No inventes problemas.
-Si hay un problema claro y un fix simple, severity = "warn" o "critical" y propone UN solo comando bash.
-Si hay problemas pero no hay fix simple, severity = "warn" y fix_command = null.
+1. Contenedor caído o reiniciando:
+   → severity=critical, fix_command: docker restart crypto_agent_system-SERVICE-1
+
+2. monitor_last_cycle_min > 10 (monitor sin ciclar):
+   → severity=warn, fix_command: docker restart crypto_agent_system-monitor-1
+
+3. discovery_last_scan_h > 26 (discovery sin correr en más de 1 día):
+   → severity=warn, fix_command: docker restart crypto_agent_system-discovery-1
+
+4. scorer_heartbeat=missing (scorer sin responder):
+   → severity=warn, fix_command: docker restart crypto_agent_system-scorer-1
+
+5. executor_heartbeat=missing (executor sin responder):
+   → severity=warn, fix_command: docker restart crypto_agent_system-executor-1
+
+6. Logs con ERROR/CRITICAL/Exception repetidos (> 5 en últimas 50 líneas = problema real):
+   → severity=warn, fix_command: docker restart del servicio afectado
+
+7. PostgreSQL inaccesible o 0 tokens activos:
+   → severity=critical, fix_command: docker restart crypto_agent_system-postgres-1
+
+8. Todo normal → severity=ok, fix_command=null
+
+IMPORTANTE: si detectás un problema de inactividad de agente, siempre proponé
+`docker restart crypto_agent_system-SERVICE-1` como fix_command — NO digas
+"verificá los contenedores" ni dejes fix_command=null cuando hay una acción clara.
 
 Respondé SIEMPRE con JSON válido y nada más:
 {"severity":"ok|warn|critical","diagnosis":"descripción concisa en español","fix_command":"comando bash único o null"}
@@ -101,6 +119,34 @@ class ClaudeDiagnostics:
             )
         else:
             lines.append(f"  ERROR: {redis.get('error', '?')}")
+
+        lines.append("\n=== ACTIVIDAD DE AGENTES ===")
+        act = snapshot.get("agent_activity", {})
+        if act.get("heartbeat_error"):
+            lines.append(f"  ERROR leyendo heartbeats: {act['heartbeat_error']}")
+        else:
+            scorer_hb = act.get("scorer_heartbeat", "unknown")
+            executor_hb = act.get("executor_heartbeat", "unknown")
+            lines.append(f"  scorer.heartbeat:   {scorer_hb}{' ⚠️' if scorer_hb == 'missing' else ''}")
+            lines.append(f"  executor.heartbeat: {executor_hb}{' ⚠️' if executor_hb == 'missing' else ''}")
+
+        mon_min = act.get("monitor_last_cycle_min")
+        if mon_min is not None:
+            flag = " ⚠️ INACTIVO" if not act.get("monitor_ok", True) else ""
+            lines.append(f"  monitor.last_cycle: {mon_min} min ago{flag}")
+        elif act.get("monitor_db_error"):
+            lines.append(f"  monitor.last_cycle: ERROR — {act['monitor_db_error']}")
+        else:
+            lines.append("  monitor.last_cycle: sin datos")
+
+        disc_h = act.get("discovery_last_scan_h")
+        if disc_h is not None:
+            flag = " ⚠️ INACTIVO" if not act.get("discovery_ok", True) else ""
+            lines.append(f"  discovery.last_scan: {disc_h} h ago{flag}")
+        elif act.get("discovery_db_error"):
+            lines.append(f"  discovery.last_scan: ERROR — {act['discovery_db_error']}")
+        else:
+            lines.append("  discovery.last_scan: sin datos")
 
         return "\n".join(lines)
 
