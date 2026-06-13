@@ -2319,3 +2319,126 @@ Claude Code escribe código en VPS, operador aprueba deploys desde Telegram.
 - Crear `@ElevenMkeys_PM_bot` en BotFather (Marce desde cel)
 - Estructura `/opt/11mkeys_lab` + tablas PostgreSQL para PM Agent
 - PM Agent base con comandos `/estado`, `/tareas`, `/blockers`
+
+---
+
+## Sesión 2026-06-13 — PM Agent: migración executeCommand → nodos SSH nativos
+
+### Problema
+El workflow `11Mkeys PM Agent` (n8n, id `HlY3gLWuJowyITB9`) usaba 5 nodos
+`n8n-nodes-base.executeCommand` para correr queries psql contra el postgres del
+crypto system. Ese tipo de nodo **no está disponible** en esta versión de n8n
+(deshabilitado por seguridad en el contenedor), así que el workflow no podía ejecutar.
+
+### Diagnóstico
+El JSON original (`pm_agent_workflow.json`) no existía en disco; se obtuvo el workflow
+en vivo vía API pública de n8n (`GET /api/v1/workflows/HlY3gLWuJowyITB9`).
+
+Al inspeccionar el nodo SSH **realmente instalado** (`Ssh.node.js`, `typeVersion 1`),
+dos valores de la instrucción inicial resultaron inválidos para esta versión:
+
+| Instrucción inicial | Valor real en el nodo v1 |
+|---|---|
+| `operation: "executeCommand"` | **`operation: "execute"`** (con `resource: "command"`) |
+| credencial tipo `sshApi` | **`sshPassword`** (id `jDAII1GLoOwffiad`, nombre "VPS SSH") |
+
+Confirmado vía `GET /api/v1/credentials`: "VPS SSH" → `type=sshPassword`.
+
+### Cambios implementados
+5 nodos convertidos `n8n-nodes-base.executeCommand` → `n8n-nodes-base.ssh`,
+conservando el comando psql exacto (incluido el prefijo `=` de expresión en los
+nodos con interpolación `{{ }}`):
+
+- `Q Estado` · `Q Tareas` · `Q Blockers` · `Insert Task` · `Update Done`
+
+Cada nodo quedó como:
+```json
+{
+  "type": "n8n-nodes-base.ssh",
+  "typeVersion": 1,
+  "parameters": { "resource": "command", "operation": "execute", "command": "<original>", "cwd": "/" },
+  "credentials": { "sshPassword": { "id": "jDAII1GLoOwffiad", "name": "VPS SSH" } }
+}
+```
+
+### Import
+Actualización **in-place vía `PUT /api/v1/workflows/HlY3gLWuJowyITB9`** (no se creó
+duplicado; se mantiene mismo id y webhook). Dos ajustes para que la API pública aceptara
+el body:
+- Payload reducido a `name`, `nodes`, `connections`, `settings` (se descartan campos read-only).
+- `settings` limpiado a `{"executionOrder":"v1"}` — la API rechaza `binaryMode` ("must NOT have additional properties").
+
+### Resultado verificado
+- `executeCommand` restantes: **0** ✅
+- 5 nodos SSH con `operation=execute`, `resource=command`, credencial `sshPassword → "VPS SSH"` ✅
+- 20 nodos restantes (Telegram, Code, Switch, IF) sin tocar.
+
+### Pendientes
+- Workflow sigue `active=false`: la API pública no activa en el PUT — activar desde UI o `/activate`.
+- Probar en runtime: disparar un comando por Telegram (ej. `/estado`) para confirmar que el
+  nodo SSH conecta al VPS y ejecuta los `docker exec ... psql` correctamente.
+
+### Activación y prueba /estado — hallazgo: workflow a medio cablear
+Al activar (`POST /activate`) falló: `Send Nueva OK` y `Send Nueva Error` no tenían
+credencial Telegram. Se les asignó "11Mkeys PM Bot" (id `JGUqhrTxSR2RjdYy`, como sus
+nodos hermanos) → activado.
+
+La prueba de `/estado` (simulada vía POST al webhook con header
+`X-Telegram-Bot-Api-Secret-Token`, secret = `${workflowId}_${nodeId}` sin chars inválidos)
+reveló que el workflow **nunca estuvo cableado en el medio** (preexistente, no del fix SSH):
+- `Route Command` (Switch v3) sin reglas ni conexiones de salida.
+- Los 5 nodos SSH y `Send Help` huérfanos.
+- Ramas válidas de los IF (`/nueva`, `/done`) sin conectar a `Insert Task`/`Update Done`.
+
+### Cableado reconstruido (según diseño inferido de los nodos)
+Switch v3: 5 reglas por `{{ $json.command }}` (`/estado`,`/tareas`,`/blockers`,`/nueva`,`/done`)
++ `options.fallbackOutput:"extra"` → `Send Help`. Conexiones agregadas:
+`Route Command` → Q*/Prep*; `Q Estado/Tareas/Blockers` → `Fmt *`;
+`IF Nueva Valid#0` → `Insert Task` → `Fmt Nueva OK`; `IF Done Valid#0` → `Update Done` → `Fmt Done OK`.
+
+### Resultado de la prueba end-to-end (execId 99)
+```
+Parse Input    ok  command=/estado
+Route Command  ok  → output /estado
+Q Estado (SSH) ok  stdout="2|3|0|0" code=0  ← conversión SSH verificada contra el VPS
+Fmt Estado     ok  "📊 Estado 11Mkeys Lab: 2 proyectos, 3 tareas, 0 blockers..."
+Send Estado    ERR "Bad Request: chat not found"  ← esperado: chat_id de prueba ficticio
+```
+Pipeline SSH→psql→format **funciona**. El único fallo es el envío final al chat de prueba
+inexistente. Para prueba real: enviar `/estado` al bot desde un chat real.
+
+### Nota de config (preexistente)
+El `PM Telegram Trigger` escucha en **"SmartDevops Bot"** (token `8141614556…`,
+@ElevenMkeys_SmartDevops_bot), pero las respuestas salen por **"11Mkeys PM Bot"**.
+Para que llegue la respuesta, el usuario debe haber iniciado AMBOS bots (o unificar a un bot).
+
+### Unificación de bot (trigger + respuestas) — 2026-06-13
+Problema detectado: el `PM Telegram Trigger` usaba la credencial **"SmartDevops Bot"**
+(token `8141614556…`), compartida con el workflow SmartDevops Agent. Telegram solo permite
+**un webhook por token**, así que al activar el PM Agent su webhook (`20246b71…`) sobrescribió
+el del SmartDevops Agent (`4e2d5c25…`) → SmartDevops Agent quedó sin recibir updates.
+
+El bot propio del PM Agent (`@ElevenMkeys_PM_Bot`, bot_id `8818804931`) ya existía como
+credencial n8n ("11Mkeys PM Bot", id `JGUqhrTxSR2RjdYy` — la misma que usan los Send) pero
+**sin webhook**. Verificado vía `getMe` (token extraído con `n8n export:credentials --decrypted`).
+
+Solución:
+1. Trigger del PM Agent → credencial "11Mkeys PM Bot" (mismo bot que las respuestas).
+2. Deactivate → PUT → Activate: n8n registra webhook en el PM bot.
+3. Restaurar SmartDevops Agent: toggle deactivate/activate → re-registra su webhook `4e2d5c25…`.
+
+Estado final de webhooks (verificado vía `getWebhookInfo`):
+- `@ElevenMkeys_PM_Bot` → `…/webhook/20246b71-…/webhook` (PM Agent)
+- `@ElevenMkeys_SmartDevops_bot` → `…/webhook/4e2d5c25-…/webhook` (SmartDevops Agent)
+
+Prueba `/estado` en el bot unificado (execId siguiente): Route→Q Estado (SSH `2|3|0|0`)→Fmt
+OK; Send falla solo con chat de prueba ficticio. Ahora el usuario solo necesita iniciar UN
+bot (`@ElevenMkeys_PM_Bot`) para enviar comandos y recibir respuestas.
+
+Nota: hay 2 credenciales n8n "11Mkeys PM Bot" con el mismo token (`JGUqhrTxSR2RjdYy` y
+`IyfBxr5585Zirmpv`) — duplicado limpiable.
+
+### Limpieza credencial duplicada — 2026-06-13
+Verificado que ningún workflow (Monkey/PM/Code/SmartDevops) referenciaba la credencial
+duplicada `IyfBxr5585Zirmpv`. Borrada vía `DELETE /api/v1/credentials/{id}`. Queda una sola
+"11Mkeys PM Bot" (`JGUqhrTxSR2RjdYy`).
