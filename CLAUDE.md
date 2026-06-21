@@ -51,6 +51,11 @@ completo de 5 pasos con los workflows JSON listos para importar.
   - Token: `8141614556:AAEbY07qhTW0idh5BaH5fMjv2JPt2PY1mV0`
   - Webhook: `https://n8n.11mkeys.ai/webhook/4e2d5c25-11ce-476c-85c7-d45f847f168c/webhook`
   - allowed_updates: `callback_query`
+- **PM Agent:** `@ElevenMkeys_PM_Bot`
+  - Token: `8818804931:AAGYdiaWTx-rr_M0sMxRUJzN9Gy05bbH9Fc`
+  - Webhook: `https://n8n.11mkeys.ai/webhook/20246b71-.../webhook`
+  - allowed_updates: `message`
+  - Credencial n8n: "11Mkeys PM Bot" (id `JGUqhrTxSR2RjdYy`) — única tras limpieza de duplicado 2026-06-13
 
 ## Code Agent Bot — Comandos disponibles
 - `/fix_etherscan` — aplica fix Etherscan V2 con aprobación manual
@@ -59,6 +64,16 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - `/scores` — top 10 tokens por `detection_score` desde PostgreSQL
 - `approve_deploy` — botón inline para aprobar deploy
 - `reject_deploy` — botón inline para rechazar deploy
+
+## PM Agent Bot — Comandos disponibles (reconstruido 2026-06-13)
+- `/estado` — resumen de tareas activas (conteo por estado)
+- `/tareas` — lista de tareas en curso
+- `/blockers` — lista de blockers activos
+- `/nueva [descripción]` — crea nueva tarea
+- `/done [id]` — marca tarea como completada
+- Fallback: Send Help (para comandos no reconocidos)
+
+Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver bitácora 2026-06-13).
 
 ## SmartDevops Agent — Arquitectura
 - Ciclo cada 30 min: Docker API + PostgreSQL + Redis → Claude diagnóstico → Telegram propuesta
@@ -92,18 +107,20 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - Status containers: `timeout 8 docker ps --format ...`
 - **NUNCA usar:** `docker compose logs` (se cuelga), `docker compose exec postgres` (se cuelga)
 
-## Estado del sistema (2026-06-08)
+## Estado del sistema (actualizado 2026-06-20)
 - Monitor: 84 tokens activos, 83 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 41.87 (GUA), subió de 34.73 post-fix funding
 - `holder_concentration_pct` activo vía Moralis ✅
 - `agents/monitor/onchain_client.py`: CoinglassClient → **CCXTDerivativesClient** ✅ (MEXC/Bitget perpetuos, cache Redis 5 min)
 - `agents/monitor/data_fetcher.py`: `get_funding_rate()` wired al pipeline ✅ — fallback a spot si None
 - ZINC/USDT: removido de `token_candidates` (`status='removed'`) ✅
-- Pendiente: chainid en BscClient + OnchainClient fallback chain
 - **SmartDevops Agent: deployado y operativo ✅**
+- **PM Agent: reconstruido y operativo ✅** (2026-06-13)
 - **Orchestrator: estable ✅**
 - **Claude Code CLI: instalado en VPS** — v2.1.168, auth via `ANTHROPIC_API_KEY` en `~/.bashrc`
 - Umbral de alerta (70 pts): no alcanzado — requiere token con volumen > $3M diario
+- **Pendiente — chainid fix:** revisar fix de Code Agent que hardcodea `chainid:1` en `EtherscanClient` y `BscClient`; incorrecto para BSC (requiere `chainid:56`) — el fix correcto verifica `self._CHAIN_ID` en `__init__` de cada clase
+- **Pendiente — health check semanal:** establecer health check de domingos para workflow "Code Agent v5-fix-chatid"
 
 ## Fix scorer aplanado (2026-06-07)
 - **Root cause**: `inflow_threshold_usd=500k` calibrado para large-caps; `inflow_1h_usd=None` hardcodeado; CryptoQuant solo cubre BTC/ETH/etc.
@@ -120,6 +137,27 @@ completo de 5 pasos con los workflows JSON listos para importar.
 | orchestrator | 0.30 | 256m |
 | smartdevops | 0.50 | 256m |
 | n8n | 1.00 | 1g |
+
+## Protocolo obligatorio — Code Agent (actualizado 2026-06-20)
+
+1. **Diagnóstico antes de acción** — usar solo comandos de lectura (`cat`, `head`, `tail`, `docker inspect`, `git log`, `docker ps`) y reportar output completo antes de proponer fix.
+2. **Diff obligatorio antes de sobrescribir** — nunca sobreescribir un archivo sin mostrar el diff completo y esperar aprobación explícita.
+3. **Sin commits ni push sin aprobación** — nunca ejecutar `git commit` ni `git push` sin aprobación explícita.
+4. **Deploy de un servicio a la vez** — nunca deployar más de un servicio simultáneamente sin aprobación.
+5. **Mensajes conversacionales en texto plano** — solo `/fix [descripción]` activa el flujo completo; mensajes de consulta no invocan herramientas de modificación.
+6. **No reportar "completado" con errores activos** — nunca reportar "completado" si el servicio sigue en estado de error.
+
+### Restricciones técnicas VPS (reafirmadas)
+
+- **NUNCA usar:** `docker compose logs` (se cuelga), `docker compose exec postgres` (se cuelga)
+- **Logs:** `docker inspect CONTAINER --format "{{.LogPath}}"` → `tail -N <path>`
+- **DB:** `timeout 10 docker exec crypto_agent_system-postgres-1 psql -U postgres -d crypto_agent -c "QUERY"`
+- **Deploy seguro:** `docker compose build SERVICE && docker compose up -d --no-deps SERVICE`
+
+### Proyectos en el VPS
+
+- `/opt/crypto_agent_system` — Crypto Agent System
+- `/opt/11mkeys_lab` — Lab projects
 
 ## Reglas
 - Nunca modificar /opt/crypto_agent_system directamente
