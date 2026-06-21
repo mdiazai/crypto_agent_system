@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+*.pdf
+*.odt
+*.png
+.env.backup
+.env.save
+*.bak

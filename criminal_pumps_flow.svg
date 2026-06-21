@@ -1,0 +1,181 @@
+<svg width="100%" viewBox="0 0 720 920" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>Criminal Pumps — Flujo dentro de 11Mkeys</title>
+<defs>
+  <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <marker id="arr-teal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="#0F6E56" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <marker id="arr-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="#993C1D" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <marker id="arr-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="#3B6D11" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
+<style>
+  text { font-family: sans-serif; }
+  .th  { font-size: 13px; font-weight: 600; }
+  .ts  { font-size: 11px; font-weight: 400; }
+  .tl  { font-size: 10px; font-weight: 400; fill: #666; }
+  .arr-line { stroke: #aaa; stroke-width: 1.5; fill: none; }
+
+  /* pipeline stage pill */
+  .stage rect { rx: 20; }
+
+  /* colors */
+  .box-amber  { fill: #FAEEDA; stroke: #854F0B; stroke-width: 0.8; }
+  .box-blue   { fill: #E6F1FB; stroke: #185FA5; stroke-width: 0.8; }
+  .box-green  { fill: #EAF3DE; stroke: #3B6D11; stroke-width: 0.8; }
+  .box-red    { fill: #FAECE7; stroke: #993C1D; stroke-width: 0.8; }
+  .box-teal   { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 0.8; }
+  .box-gray   { fill: #F4F2EC; stroke: #888; stroke-width: 0.8; }
+  .box-purple { fill: #EEEDFE; stroke: #534AB7; stroke-width: 0.8; }
+  .box-pink   { fill: #FBEAF0; stroke: #993556; stroke-width: 0.8; }
+
+  .t-amber  { fill: #633806; }
+  .t-blue   { fill: #0C447C; }
+  .t-green  { fill: #27500A; }
+  .t-red    { fill: #712B13; }
+  .t-teal   { fill: #085041; }
+  .t-gray   { fill: #333; }
+  .t-purple { fill: #3C3489; }
+  .t-pink   { fill: #72243E; }
+</style>
+
+<!-- ══ TÍTULO ══ -->
+<rect x="40" y="16" width="640" height="44" rx="10" class="box-amber"/>
+<text class="th t-amber" x="360" y="34" text-anchor="middle" font-size="15">Criminal Pumps — Flujo operativo en 11Mkeys</text>
+<text class="ts t-amber" x="360" y="52" text-anchor="middle">Crypto agent · detección de pumps en altcoins · momentum</text>
+
+<!-- ══ PIPELINE STAGE BAR ══ -->
+<rect x="40" y="74" width="640" height="28" rx="8" class="box-gray"/>
+<!-- stages -->
+<rect x="52" y="78" width="74" height="20" rx="10" fill="#F1EFE8" stroke="#aaa" stroke-width="0.5"/>
+<text class="tl" x="89" y="92" text-anchor="middle">I+D</text>
+
+<!-- POC highlighted -->
+<rect x="134" y="78" width="74" height="20" rx="10" fill="#FAEEDA" stroke="#854F0B" stroke-width="1.2"/>
+<text class="ts t-amber" x="171" y="92" text-anchor="middle" font-weight="700">◉ POC</text>
+
+<line x1="209" y1="88" x2="216" y2="88" class="arr-line" marker-end="url(#arr)"/>
+<rect x="218" y="78" width="90" height="20" rx="10" fill="#F1EFE8" stroke="#aaa" stroke-width="0.5"/>
+<text class="tl" x="263" y="92" text-anchor="middle">Desarrollo</text>
+
+<line x1="309" y1="88" x2="316" y2="88" class="arr-line" marker-end="url(#arr)"/>
+<rect x="318" y="78" width="90" height="20" rx="10" fill="#F1EFE8" stroke="#aaa" stroke-width="0.5"/>
+<text class="tl" x="363" y="92" text-anchor="middle">Lanzamiento</text>
+
+<line x1="409" y1="88" x2="416" y2="88" class="arr-line" marker-end="url(#arr)"/>
+<rect x="418" y="78" width="90" height="20" rx="10" fill="#F1EFE8" stroke="#aaa" stroke-width="0.5"/>
+<text class="tl" x="463" y="92" text-anchor="middle">Operación</text>
+
+<!-- Gate label -->
+<rect x="530" y="78" width="140" height="20" rx="10" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.8"/>
+<text class="tl t-purple" x="600" y="92" text-anchor="middle" font-weight="600">🔒 gate: aprobación Marce</text>
+
+<!-- ══ BLOQUE 1: DETECCIÓN ══ -->
+<rect x="40" y="120" width="640" height="84" rx="10" class="box-blue"/>
+<text class="th t-blue" x="360" y="140" text-anchor="middle">1 · Detección de señal</text>
+<text class="ts t-blue" x="360" y="158" text-anchor="middle">Crypto agent monitorea en loop: volumen anómalo · price action · order book delta</text>
+<text class="ts t-blue" x="360" y="174" text-anchor="middle">Fuentes: CCXT (Binance/Bybit) · WebSocket ticker · social sentiment (opcional)</text>
+
+<!-- signal items -->
+<rect x="60" y="180" width="178" height="20" rx="6" class="box-blue"/>
+<text class="tl t-blue" x="149" y="194" text-anchor="middle">volumen &gt; X veces media</text>
+<rect x="252" y="180" width="178" height="20" rx="6" class="box-blue"/>
+<text class="tl t-blue" x="341" y="194" text-anchor="middle">price change &gt; umbral %</text>
+<rect x="444" y="180" width="220" height="20" rx="6" class="box-blue"/>
+<text class="tl t-blue" x="554" y="194" text-anchor="middle">order book: bid pressure súbita</text>
+
+<!-- Arrow 1→2 -->
+<line x1="360" y1="204" x2="360" y2="220" class="arr-line" marker-end="url(#arr)"/>
+
+<!-- ══ BLOQUE 2: EVALUACIÓN (Autónomo) ══ -->
+<rect x="40" y="224" width="640" height="80" rx="10" class="box-amber"/>
+<text class="th t-amber" x="360" y="244" text-anchor="middle">2 · Evaluación autónoma del Crypto agent</text>
+<text class="ts t-amber" x="360" y="262" text-anchor="middle">Score de la señal · verifica condiciones de mercado · calcula tamaño de posición</text>
+<text class="ts t-amber" x="360" y="278" text-anchor="middle">Define entry price · stop-loss · take-profit</text>
+
+<!-- autónomo badge -->
+<rect x="274" y="284" width="172" height="18" rx="9" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.8"/>
+<text class="tl t-amber" x="360" y="297" text-anchor="middle" font-weight="600">⚡ 100% autónomo · sin gate</text>
+
+<!-- Arrow 2→ decision -->
+<line x1="360" y1="305" x2="360" y2="321" class="arr-line" marker-end="url(#arr)"/>
+
+<!-- ══ BLOQUE 3: DECISIÓN ══ -->
+<rect x="220" y="324" width="280" height="38" rx="10" class="box-gray"/>
+<text class="th t-gray" x="360" y="340" text-anchor="middle">¿Señal supera umbral?</text>
+<text class="ts" x="360" y="356" text-anchor="middle" fill="#888">score mínimo configurable</text>
+
+<!-- SI branch -->
+<line x1="280" y1="362" x2="180" y2="390" stroke="#3B6D11" stroke-width="1.5" marker-end="url(#arr-green)" fill="none"/>
+<text class="tl" x="196" y="383" text-anchor="middle" fill="#3B6D11" font-weight="700">SÍ</text>
+
+<!-- NO branch -->
+<line x1="440" y1="362" x2="540" y2="390" stroke="#993C1D" stroke-width="1.5" marker-end="url(#arr-red)" fill="none"/>
+<text class="tl" x="524" y="383" text-anchor="middle" fill="#993C1D" font-weight="700">NO</text>
+
+<!-- ══ SI: EJECUTA ══ -->
+<rect x="60" y="394" width="240" height="72" rx="10" class="box-green"/>
+<text class="th t-green" x="180" y="414" text-anchor="middle">Ejecuta entrada</text>
+<text class="ts t-green" x="180" y="430" text-anchor="middle">Order limit/market</text>
+<text class="ts t-green" x="180" y="446" text-anchor="middle">Sizing ajustado a volatilidad</text>
+<text class="ts t-green" x="180" y="462" text-anchor="middle">Registra en Postgres</text>
+
+<!-- ══ NO: DESCARTA ══ -->
+<rect x="418" y="394" width="240" height="72" rx="10" class="box-red"/>
+<text class="th t-red" x="538" y="414" text-anchor="middle">Descarta señal</text>
+<text class="ts t-red" x="538" y="430" text-anchor="middle">Log con razón</text>
+<text class="ts t-red" x="538" y="446" text-anchor="middle">Incrementa dataset</text>
+<text class="ts t-red" x="538" y="462" text-anchor="middle">Alimenta aprendizaje</text>
+
+<!-- Arrow ejecuta → notifica -->
+<line x1="180" y1="466" x2="180" y2="490" stroke="#3B6D11" stroke-width="1.5" marker-end="url(#arr-green)" fill="none"/>
+
+<!-- ══ BLOQUE 4: NOTIFICACIÓN TELEGRAM ══ -->
+<rect x="40" y="494" width="640" height="68" rx="10" class="box-teal"/>
+<text class="th t-teal" x="360" y="516" text-anchor="middle">3 · Notificación a Marce vía Telegram</text>
+<text class="ts t-teal" x="360" y="534" text-anchor="middle">📊 Par · entry · size · SL · TP · score de señal · razón de la entrada</text>
+<text class="ts t-teal" x="360" y="550" text-anchor="middle">Informativo · no requiere acción · Marce puede override si quiere</text>
+<!-- teal badge info -->
+<rect x="260" y="554" width="200" height="18" rx="9" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.8"/>
+<text class="tl t-teal" x="360" y="567" text-anchor="middle">📱 push · no bloquea el flujo</text>
+
+<!-- Arrow → monitor -->
+<line x1="360" y1="572" x2="360" y2="588" class="arr-line" marker-end="url(#arr)"/>
+
+<!-- ══ BLOQUE 5: MONITOREO ══ -->
+<rect x="40" y="592" width="640" height="68" rx="10" class="box-amber"/>
+<text class="th t-amber" x="360" y="614" text-anchor="middle">4 · Monitoreo autónomo de posición abierta</text>
+<text class="ts t-amber" x="360" y="632" text-anchor="middle">⚡ Cierra por stop-loss automático · toma parcial de ganancias en targets</text>
+<text class="ts t-amber" x="360" y="648" text-anchor="middle">⚡ Trailing stop si el momentum continúa · alerta si volatilidad cambia de régimen</text>
+<rect x="264" y="652" width="194" height="18" rx="9" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.8"/>
+<text class="tl t-amber" x="361" y="665" text-anchor="middle" font-weight="600">⚡ 100% autónomo · sin gate</text>
+
+<!-- Arrow → cierre -->
+<line x1="360" y1="672" x2="360" y2="688" class="arr-line" marker-end="url(#arr)"/>
+
+<!-- ══ BLOQUE 6: CIERRE Y REPORTE ══ -->
+<rect x="40" y="692" width="640" height="66" rx="10" class="box-purple"/>
+<text class="th t-purple" x="360" y="714" text-anchor="middle">5 · Cierre + reporte diario</text>
+<text class="ts t-purple" x="360" y="732" text-anchor="middle">Reporte automático 20:00 UYT: trades del día · P&amp;L · win rate · señales descartadas</text>
+<text class="ts t-purple" x="360" y="748" text-anchor="middle">Semana: reporte de performance + sugerencias de ajuste de parámetros</text>
+
+<!-- Arrow → R+I+D -->
+<line x1="360" y1="758" x2="360" y2="774" class="arr-line" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+
+<!-- ══ BLOQUE 7: ALIMENTA R+I+D ══ -->
+<rect x="40" y="778" width="640" height="48" rx="10" class="box-green"/>
+<text class="th t-green" x="360" y="798" text-anchor="middle">→ R+I+D agent</text>
+<text class="ts t-green" x="360" y="816" text-anchor="middle">Patterns detectados · señales fallidas · correlaciones · learnings del sistema</text>
+
+<!-- ══ GATE BOX: POC → Desarrollo ══ -->
+<rect x="40" y="840" width="640" height="60" rx="10" class="box-pink"/>
+<text class="th t-pink" x="360" y="862" text-anchor="middle">🔒 Gate: POC → Desarrollo (aprobación Marce)</text>
+<text class="ts t-pink" x="360" y="880" text-anchor="middle">Criterio: 30 días paper trading · win rate &gt; 55% · max drawdown &lt; 15%</text>
+<text class="ts t-pink" x="360" y="896" text-anchor="middle">PM agent presenta reporte → Marce aprueba vía Telegram → Crypto agent pasa a capital real</text>
+
+</svg>

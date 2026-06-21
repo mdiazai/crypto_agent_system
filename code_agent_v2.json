@@ -1,0 +1,241 @@
+{
+  "name": "11Mkeys Code Agent",
+  "nodes": [
+    {
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "parameters": {
+        "updates": ["message", "callback_query"]
+      },
+      "credentials": { "telegramApi": { "name": "11Mkeys Code Bot" } },
+      "position": [240, 300]
+    },
+    {
+      "name": "Route Command",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.message?.text || $json.callback_query?.data }}",
+        "rules": { "rules": [
+          { "value2": "/fix_etherscan", "output": 0 },
+          { "value2": "/fix_coinglass",  "output": 1 },
+          { "value2": "/status",         "output": 2 },
+          { "value2": "approve_deploy",  "output": 3 },
+          { "value2": "reject_deploy",   "output": 4 }
+        ]}
+      },
+      "position": [460, 300]
+    },
+    {
+      "name": "Read onchain_client",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "parameters": {
+        "resource": "command",
+        "command": "cat /opt/crypto_agent_system/agents/monitor/onchain_client.py"
+      },
+      "credentials": { "sshPassword": { "name": "VPS Hostinger" } },
+      "position": [700, 160]
+    },
+    {
+      "name": "Claude API Fix Etherscan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "anthropic-version", "value": "2023-06-01" },
+          { "name": "content-type",      "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 4096,\n  \"system\": \"Sos un experto en Python async y APIs blockchain. Aplicás fixes específicos a archivos. Devolvés SOLO el archivo Python completo modificado, sin explicaciones, sin markdown, sin backticks.\",\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Aplicá estos cambios al archivo:\\n\\nCAMBIO 1 — URL base:\\nANTES: ETHERSCAN_BASE = 'https://api.etherscan.io/api'\\nDESPUES: ETHERSCAN_BASE = 'https://api.etherscan.io/v2/api'\\n\\nCAMBIO 2 — Agregar chainid=1 en EtherscanClient.get_holder_concentration:\\nparams = {\\n    'chainid': 1,\\n    'module': 'token',\\n    'action': 'tokenholderlist',\\n    'contractaddress': contract_address,\\n    'page': 1, 'offset': 10,\\n    'apikey': self._api_key\\n}\\n\\nCAMBIO 3 — BscClient separado con chainid=56.\\n\\nCAMBIO 4 — OnchainClient: chain='evm' intentar chainid=1 primero luego chainid=56. chain='solana' Helius sin cambios.\\n\\nARCHIVO ACTUAL:\\n{{ $('Read onchain_client').item.json.stdout }}\"\n  }]\n}"
+      },
+      "credentials": { "httpHeaderAuth": { "name": "Anthropic API" } },
+      "position": [940, 160]
+    },
+    {
+      "name": "Extract Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const r = $input.item.json;\nconst c = r.content[0].text;\nreturn [{ json: { fixedCode: c, lines: c.split('\\n').length } }];"
+      },
+      "position": [1160, 160]
+    },
+    {
+      "name": "Backup and Write File",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "parameters": {
+        "resource": "command",
+        "command": "=cp /opt/crypto_agent_system/agents/monitor/onchain_client.py /opt/crypto_agent_system/agents/monitor/onchain_client.py.bak && cat > /opt/crypto_agent_system/agents/monitor/onchain_client.py << 'PYEOF'\n{{ $json.fixedCode }}\nPYEOF\necho OK"
+      },
+      "credentials": { "sshPassword": { "name": "VPS Hostinger" } },
+      "position": [1380, 160]
+    },
+    {
+      "name": "Gen Diff",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "parameters": {
+        "resource": "command",
+        "command": "cd /opt/crypto_agent_system && git diff agents/monitor/onchain_client.py | head -60"
+      },
+      "credentials": { "sshPassword": { "name": "VPS Hostinger" } },
+      "position": [1580, 160]
+    },
+    {
+      "name": "Ask Approval",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "parameters": {
+        "chatId": "6517856768",
+        "text": "=🔧 *Fix Etherscan V2 listo*\n\n```diff\n{{ $json.stdout.substring(0,1400) }}\n```\n\n¿Deployar?",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "reply_markup": "{\"inline_keyboard\":[[{\"text\":\"✅ Deploy\",\"callback_data\":\"approve_deploy\"},{\"text\":\"❌ Rechazar\",\"callback_data\":\"reject_deploy\"}]]}"
+        }
+      },
+      "credentials": { "telegramApi": { "name": "11Mkeys Code Bot" } },
+      "position": [1800, 160]
+    },
+    {
+      "name": "Notify Monkey - Fix Ready",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot8829243525:AAGvN7WJsGbM3Hfg0uDAPUog38yALBOghdQ/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"chat_id\":\"6517856768\",\"parse_mode\":\"Markdown\",\"text\":\"🐒 *Monkey Advisor*\\n\\n*¿Qué acaba de pasar?*\\nEl Code Agent preparó un fix para el sistema de detección de criptomonedas.\\n\\n*¿Qué es Etherscan?*\\nEs como el 'Google Maps' de la blockchain. Muestra quién tiene qué tokens. El sistema lo usa para detectar si pocas ballenas acumularon un token antes de que suba.\\n\\n*¿Por qué cambiamos de V1 a V2?*\\nEtherscan dejó de mantener su API vieja. Con este fix el sistema vuelve a ver datos de concentración de holders.\\n\\n*¿Qué mejora esto?*\\nEl score máximo sube de 67 a 92 puntos. 25 puntos extra que estaban en cero.\\n\\n📱 Revisá el bot Code Agent para aprobar el deploy.\"}"
+      },
+      "position": [1800, 300]
+    },
+    {
+      "name": "Deploy",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "parameters": {
+        "resource": "command",
+        "command": "cd /opt/crypto_agent_system && git add agents/monitor/onchain_client.py && git commit -m 'fix: etherscan API V1 to V2 + chainid [auto 11Mkeys]' && git push origin main && docker compose build monitor && docker compose up -d --no-deps monitor 2>&1 | tail -15"
+      },
+      "credentials": { "sshPassword": { "name": "VPS Hostinger" } },
+      "position": [700, 460]
+    },
+    {
+      "name": "Verify",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "parameters": {
+        "resource": "command",
+        "command": "sleep 12 && docker compose -f /opt/crypto_agent_system/docker-compose.yml exec -T monitor python -c \"from agents.monitor.onchain_client import EtherscanClient; print('Etherscan V2 OK')\" 2>&1"
+      },
+      "credentials": { "sshPassword": { "name": "VPS Hostinger" } },
+      "position": [940, 460]
+    },
+    {
+      "name": "Notify Deploy OK",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "parameters": {
+        "chatId": "6517856768",
+        "text": "=✅ *Deploy completado*\n\n```\n{{ $json.stdout }}\n```\nMonitor reiniciado. Holder data activo en próximo ciclo.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "credentials": { "telegramApi": { "name": "11Mkeys Code Bot" } },
+      "position": [1160, 460]
+    },
+    {
+      "name": "Notify Monkey - Deploy Done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot8829243525:AAGvN7WJsGbM3Hfg0uDAPUog38yALBOghdQ/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"chat_id\":\"6517856768\",\"parse_mode\":\"Markdown\",\"text\":\"🐒 *Monkey Advisor*\\n\\n✅ *Fix deployado exitosamente*\\n\\n*¿Qué significa 'docker build + restart'?*\\nDocker son cajas selladas donde vive cada parte del sistema. Build reconstruye la caja del Monitor con el código nuevo. Restart la vuelve a encender. El resto siguió corriendo sin interrupciones.\\n\\n*¿Qué pasa ahora?*\\nEn las próximas 6 horas el sistema consultará Etherscan V2 para los ~144 tokens con dirección registrada. Los scores subirán porque ahora incluyen concentración de holders.\\n\\n*¿Cómo verificás?*\\nDashboard: http://167.88.33.68:8001 → Scanner → pasá el mouse sobre el score de cualquier token → deberías ver 'On-chain: X pts' en lugar de '0 pts'.\"}"
+      },
+      "position": [1380, 460]
+    },
+    {
+      "name": "Restore Backup",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "parameters": {
+        "resource": "command",
+        "command": "cp /opt/crypto_agent_system/agents/monitor/onchain_client.py.bak /opt/crypto_agent_system/agents/monitor/onchain_client.py && echo 'Restaurado'"
+      },
+      "credentials": { "sshPassword": { "name": "VPS Hostinger" } },
+      "position": [700, 580]
+    },
+    {
+      "name": "Notify Rejected",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "parameters": {
+        "chatId": "6517856768",
+        "text": "❌ Fix rechazado. Archivo restaurado al original.",
+        "additionalFields": {}
+      },
+      "credentials": { "telegramApi": { "name": "11Mkeys Code Bot" } },
+      "position": [940, 580]
+    },
+    {
+      "name": "Status Check",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "parameters": {
+        "resource": "command",
+        "command": "cd /opt/crypto_agent_system && docker compose ps --format 'table {{.Name}}\\t{{.Status}}' && echo '---HOLDER DATA---' && docker compose exec -T postgres psql -U postgres -d crypto_agent -c \"SELECT COUNT(*) as con_holder_data FROM token_candidates WHERE holder_concentration_pct IS NOT NULL AND status='active';\" 2>/dev/null"
+      },
+      "credentials": { "sshPassword": { "name": "VPS Hostinger" } },
+      "position": [700, 700]
+    },
+    {
+      "name": "Send Status",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "parameters": {
+        "chatId": "6517856768",
+        "text": "=📊 *Estado Criminal Pumps*\n\n```\n{{ $json.stdout }}\n```",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "credentials": { "telegramApi": { "name": "11Mkeys Code Bot" } },
+      "position": [940, 700]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger":       { "main": [[{ "node": "Route Command",          "type": "main", "index": 0 }]] },
+    "Route Command":          { "main": [
+      [{ "node": "Read onchain_client",   "type": "main", "index": 0 }],
+      [],
+      [{ "node": "Status Check",          "type": "main", "index": 0 }],
+      [{ "node": "Deploy",                "type": "main", "index": 0 }],
+      [{ "node": "Restore Backup",        "type": "main", "index": 0 }]
+    ]},
+    "Read onchain_client":    { "main": [[{ "node": "Claude API Fix Etherscan", "type": "main", "index": 0 }]] },
+    "Claude API Fix Etherscan": { "main": [[{ "node": "Extract Code",           "type": "main", "index": 0 }]] },
+    "Extract Code":           { "main": [[{ "node": "Backup and Write File",    "type": "main", "index": 0 }]] },
+    "Backup and Write File":  { "main": [[{ "node": "Gen Diff",                 "type": "main", "index": 0 }]] },
+    "Gen Diff":               { "main": [
+      [{ "node": "Ask Approval",          "type": "main", "index": 0 }],
+      [{ "node": "Notify Monkey - Fix Ready", "type": "main", "index": 0 }]
+    ]},
+    "Deploy":                 { "main": [[{ "node": "Verify",                   "type": "main", "index": 0 }]] },
+    "Verify":                 { "main": [
+      [{ "node": "Notify Deploy OK",      "type": "main", "index": 0 }],
+      [{ "node": "Notify Monkey - Deploy Done", "type": "main", "index": 0 }]
+    ]},
+    "Restore Backup":         { "main": [[{ "node": "Notify Rejected",          "type": "main", "index": 0 }]] },
+    "Status Check":           { "main": [[{ "node": "Send Status",              "type": "main", "index": 0 }]] }
+  }
+}
