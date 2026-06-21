@@ -51,11 +51,12 @@ completo de 5 pasos con los workflows JSON listos para importar.
   - Token: `8141614556:AAEbY07qhTW0idh5BaH5fMjv2JPt2PY1mV0`
   - Webhook: `https://n8n.11mkeys.ai/webhook/4e2d5c25-11ce-476c-85c7-d45f847f168c/webhook`
   - allowed_updates: `callback_query`
-- **PM Agent:** `@ElevenMkeys_PM_Bot`
+- **PM Agent:** `@ElevenMkeys_PM_Bot` (bot_id `8818804931`)
   - Token: `8818804931:AAGYdiaWTx-rr_M0sMxRUJzN9Gy05bbH9Fc`
-  - Webhook: `https://n8n.11mkeys.ai/webhook/20246b71-.../webhook`
+  - Webhook: `https://n8n.11mkeys.ai/webhook/20246b71-c0a8-4af5-a406-e93749e29524/webhook`
   - allowed_updates: `message`
-  - Credencial n8n: "11Mkeys PM Bot" (id `JGUqhrTxSR2RjdYy`) — única tras limpieza de duplicado 2026-06-13
+  - Trigger y respuestas unificados en este bot (cred n8n "11Mkeys PM Bot" id `JGUqhrTxSR2RjdYy`)
+  - Credencial duplicada `IyfBxr5585Zirmpv` eliminada 2026-06-13 — queda solo `JGUqhrTxSR2RjdYy`
 
 ## Code Agent Bot — Comandos disponibles
 - `/fix_etherscan` — aplica fix Etherscan V2 con aprobación manual
@@ -92,6 +93,22 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Monkey Advisor:** Telegram Trigger → Get System Context → Anthropic (nativo) → Send a text message
 - **Code Agent:** Telegram Trigger → Route Command → Ops Router (arquitectura dual switch)
 - **SmartDevops Agent:** Telegram Trigger (callback_query) → Route Command → SSH execute/ignore → Telegram notify
+- **PM Agent:** Telegram Trigger → Parse Input → Route Command → nodos SSH (queries psql) → Fmt → Telegram
+  - id `HlY3gLWuJowyITB9` — comandos `/estado`, `/tareas`, `/blockers`, nueva tarea, marcar done
+
+## PM Agent — nodos SSH (2026-06-13)
+- El nodo `n8n-nodes-base.executeCommand` **no existe** en esta versión de n8n → migrado a `n8n-nodes-base.ssh`
+- Nodo SSH instalado es **v1**: usar `resource: "command"`, `operation: "execute"` (NO `executeCommand`)
+- Credencial SSH: tipo **`sshPassword`**, nombre "VPS SSH", id `jDAII1GLoOwffiad` (NO `sshApi`)
+- 5 nodos convertidos: `Q Estado`, `Q Tareas`, `Q Blockers`, `Insert Task`, `Update Done`
+- Import: `PUT /api/v1/workflows/{id}` con body `name/nodes/connections/settings`; `settings` solo `{"executionOrder":"v1"}` (API rechaza `binaryMode`)
+- **Workflow estaba a medio cablear (preexistente):** `Route Command` (Switch v3) sin reglas/conexiones; 5 nodos SSH huérfanos. Cableado reconstruido 2026-06-13.
+- Switch v3: 5 reglas por `{{ $json.command }}` (`/estado`,`/tareas`,`/blockers`,`/nueva`,`/done`) + `options.fallbackOutput:"extra"` → `Send Help`
+- `Send Nueva OK`/`Send Nueva Error` no tenían credencial Telegram → asignada "11Mkeys PM Bot" (id `JGUqhrTxSR2RjdYy`)
+- **Activo ✅ y probado end-to-end** (execId 99): `Q Estado` SSH devuelve `2|3|0|0`, formato OK; `Send Estado` solo falla con chat de prueba ficticio ("chat not found")
+- Prueba simulada: `POST` al webhook con header `X-Telegram-Bot-Api-Secret-Token` = `${workflowId}_${nodeId}` (chars no válidos eliminados)
+- **Bot unificado (2026-06-13):** trigger Y respuestas ahora en `@ElevenMkeys_PM_Bot` (antes el trigger escuchaba en el bot SmartDevops y rompía su webhook). El SmartDevops bot quedó liberado y su webhook restaurado.
+- Pendiente: prueba real enviando `/estado` a `@ElevenMkeys_PM_Bot` (iniciar el bot con /start primero)
 
 ## Infraestructura VPS — Cambios importantes (2026-06-06)
 - `WEBHOOK_URL` n8n: `https://n8n.11mkeys.ai/` (permanente en `docker-compose.yml`)
