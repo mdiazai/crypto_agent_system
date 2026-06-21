@@ -124,7 +124,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Status containers: `timeout 8 docker ps --format ...`
 - **NUNCA usar:** `docker compose logs` (se cuelga), `docker compose exec postgres` (se cuelga)
 
-## Estado del sistema (actualizado 2026-06-20)
+## Estado del sistema (actualizado 2026-06-21)
 - Monitor: 84 tokens activos, 83 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 41.87 (GUA), subió de 34.73 post-fix funding
 - `holder_concentration_pct` activo vía Moralis ✅
