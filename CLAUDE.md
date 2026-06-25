@@ -111,6 +111,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Bot unificado (2026-06-13):** trigger Y respuestas ahora en `@ElevenMkeys_PM_Bot` (antes el trigger escuchaba en el bot SmartDevops y rompía su webhook). El SmartDevops bot quedó liberado y su webhook restaurado.
 - Pendiente: prueba real enviando `/estado` a `@ElevenMkeys_PM_Bot` (iniciar el bot con /start primero)
 - **`/run [cmd]` agregado 2026-06-24:** 6 nodos nuevos (Prep Run → IF Run Valid → SSH Run / Send Run Error → Fmt Run → Send Run). Switch v3 ahora tiene 6 reglas + fallback. Actualizado via PUT API con nueva key (todos los scopes). La key anterior solo tenía workflow:read + workflow:update y no podía acceder a endpoints individuales.
+- **Contenedor huérfano eliminado 2026-06-24:** `11mkeys_pm_agent` (`11mkeys-pm-agent:latest`, `python -m agents.pm.pm_agent`) usaba el mismo token `8818804931:…` que el workflow n8n — conflicto de polling vs webhook. Detenido y removido via `/run`. El workflow n8n es la única implementación del PM Agent.
 
 ## Infraestructura VPS — Cambios importantes (2026-06-06)
 - `WEBHOOK_URL` n8n: `https://n8n.11mkeys.ai/` (permanente en `docker-compose.yml`)
