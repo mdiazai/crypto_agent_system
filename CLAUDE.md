@@ -128,6 +128,16 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Status containers: `timeout 8 docker ps --format ...`
 - **NUNCA usar:** `docker compose logs` (se cuelga), `docker compose exec postgres` (se cuelga)
 
+## Focus Guardian — Bot de check-ins (deployado 2026-06-25)
+- Container: `focus_guardian` en `crypto_agent_network`
+- Bot: `FOCUS_BOT_TOKEN` del `.env` (bot independiente, no PM_BOT_TOKEN)
+- Tabla: `focus_checkins` (fecha, tipo, proyecto_declarado, resultado, detalle)
+- Scheduler (UTC): check-in mañana 12:00 | timeout sin_respuesta 14:00 | check-in noche 00:00
+- Check-in noche: botones inline `fg_avance` / `fg_desvio` + detalle opcional o `/skip`
+- Comando `/historial`: últimos 7 registros
+- Build context: `/opt/11mkeys_lab` | Dockerfile: `agents/focus/Dockerfile`
+- `requirements.txt` creado en repo 11mkeys_lab (asyncpg, apscheduler, anthropic, python-telegram-bot, python-dotenv)
+
 ## Estado del sistema (actualizado 2026-06-21)
 - Monitor: 84 tokens activos, 83 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 41.87 (GUA), subió de 34.73 post-fix funding
