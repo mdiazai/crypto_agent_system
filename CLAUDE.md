@@ -66,12 +66,13 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - `approve_deploy` — botón inline para aprobar deploy
 - `reject_deploy` — botón inline para rechazar deploy
 
-## PM Agent Bot — Comandos disponibles (reconstruido 2026-06-13)
+## PM Agent Bot — Comandos disponibles (actualizado 2026-06-24)
 - `/estado` — resumen de tareas activas (conteo por estado)
 - `/tareas` — lista de tareas en curso
 - `/blockers` — lista de blockers activos
 - `/nueva [descripción]` — crea nueva tarea
 - `/done [id]` — marca tarea como completada
+- `/run [cmd]` — ejecuta comando arbitrario en el VPS (timeout 30s, output truncado a 3800 chars)
 - Fallback: Send Help (para comandos no reconocidos)
 
 Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver bitácora 2026-06-13).
@@ -109,6 +110,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Prueba simulada: `POST` al webhook con header `X-Telegram-Bot-Api-Secret-Token` = `${workflowId}_${nodeId}` (chars no válidos eliminados)
 - **Bot unificado (2026-06-13):** trigger Y respuestas ahora en `@ElevenMkeys_PM_Bot` (antes el trigger escuchaba en el bot SmartDevops y rompía su webhook). El SmartDevops bot quedó liberado y su webhook restaurado.
 - Pendiente: prueba real enviando `/estado` a `@ElevenMkeys_PM_Bot` (iniciar el bot con /start primero)
+- **`/run [cmd]` agregado 2026-06-24:** 6 nodos nuevos (Prep Run → IF Run Valid → SSH Run / Send Run Error → Fmt Run → Send Run). Switch v3 ahora tiene 6 reglas + fallback. Actualizado via PUT API con nueva key (todos los scopes). La key anterior solo tenía workflow:read + workflow:update y no podía acceder a endpoints individuales.
 
 ## Infraestructura VPS — Cambios importantes (2026-06-06)
 - `WEBHOOK_URL` n8n: `https://n8n.11mkeys.ai/` (permanente en `docker-compose.yml`)
