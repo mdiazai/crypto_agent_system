@@ -2680,8 +2680,15 @@ Application started
 
 Estado: **operativo ✅** — primer check-in mañana a las 12:00 UTC (09:00 Uruguay).
 
+### 6. Test end-to-end
+
+Disparado mensaje de prueba desde el bot vía Telegram API (curl en VPS con FOCUS_BOT_TOKEN del .env). Bot `@ElevenMkeys_Focus_bot` (id `8908797583`) envió mensaje a chat `6517856768`. Usuario respondió en Telegram → bot procesó el mensaje y respondió "Sin check-in pendiente" ✅.
+
+Comportamiento esperado: fuera del horario de scheduler (`morning_pending = False`), cualquier texto recibe el fallback. La respuesta con guardado en DB ocurrirá cuando el scheduler dispare a las 12:00 UTC (09:00 Uruguay).
+
 ### Commits de la sesión
 - `88f4f79` — feat: blacklist comandos peligrosos en /run del PM Agent
 - `856ef87` — feat: Focus Guardian v1 — check-ins manana/noche via Telegram
 - `1b0efa0` — chore: agregar requirements.txt para build de agentes 11mkeys_lab
 - `4501cc3` — docs: Focus Guardian deployado — CLAUDE.md actualizado
+- `062212e` — docs: bitacora sesion 2026-06-25
