@@ -2606,4 +2606,82 @@ Ejecución exitosa: exec 217, `code: 0`, stderr vacío ✅.
 
 ### Conclusión
 `/run` acepta pipes, flags complejos y `docker exec psql` sin problemas. Listo para uso en producción.
-- Health check semanal Code Agent (heredado)
+
+---
+
+## Sesión 2026-06-25 — Blacklist `/run` + Focus Guardian v1
+
+### 1. Blacklist de comandos peligrosos en `/run`
+
+Se detectó que el nodo `Prep Run` del PM Agent no tenía ninguna validación de comandos destructivos. Se agregó una lista negra en el jsCode del nodo via PUT API:
+
+```javascript
+const BLOCKED = ['rm -rf', 'docker rm', 'docker rmi', 'git push', 'git reset --hard'];
+const blocked = BLOCKED.find(b => args.includes(b));
+if (blocked) return [{ json: { text: '🚫 Comando bloqueado: `' + blocked + '`', skip: true, chat_id: data.chat_id } }];
+```
+
+**Test:** `/run rm -rf /opt/crypto_agent_system` → exec 221, Prep Run devolvió `skip: true`, SSH Run no ejecutó ✅. Commit `88f4f79`.
+
+### 2. Focus Guardian v1 — Diseño
+
+**Spec:** bot de check-ins diarios. Mañana 09:00 UY pregunta el proyecto del día; noche 21:00 UY pregunta si avanzó o se desvió (botones inline). Si no hay respuesta al check-in de mañana a las 11:00 UY, registra `sin_respuesta`.
+
+**Flag crítico detectado:** `PM_BOT_TOKEN` ya tiene webhook activo en n8n → conflict 409 si un container Python intenta polling con el mismo token. Solución: `FOCUS_BOT_TOKEN` separado (nuevo bot en BotFather, ya configurado en `.env`).
+
+**Tabla nueva:**
+```sql
+CREATE TABLE IF NOT EXISTS focus_checkins (
+    id SERIAL PRIMARY KEY, fecha DATE NOT NULL,
+    tipo VARCHAR(10) NOT NULL CHECK (tipo IN ('manana', 'noche')),
+    proyecto_declarado TEXT, resultado VARCHAR(20) NOT NULL
+    CHECK (resultado IN ('avance', 'desvio', 'sin_respuesta')),
+    detalle TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (fecha, tipo)
+);
+```
+
+### 3. Archivos creados
+
+- `agents/focus/__init__.py` — vacío
+- `agents/focus/Dockerfile` — mismo patrón que agentes existentes, CMD `agents.focus.focus_guardian`
+- `agents/focus/focus_guardian.py` — agente principal (249 líneas)
+- `scripts/create_focus_checkins.sql` — migración
+- `requirements.txt` — nuevo en repo 11mkeys_lab (asyncpg, apscheduler, anthropic, python-telegram-bot, python-dotenv)
+
+Commit `856ef87` (Focus Guardian v1) + `1b0efa0` (requirements.txt).
+
+### 4. Deploy — Problemas y soluciones
+
+**Problema 1 — `requirements.txt` no existe en `/opt/11mkeys_lab`:** El Dockerfile hace `COPY requirements.txt .` pero el archivo nunca fue commiteado. Fix: crear y pushear `requirements.txt` con las 5 dependencias mínimas.
+
+**Problema 2 — `docker compose build` con timeout 30:** El nodo SSH Run envuelve todo en `timeout 30 <cmd>`. `nohup CMD &` como safe_cmd resulta en `timeout 30 nohup CMD &` — el `&` backgroundea el proceso `timeout`, que luego envía SIGTERM al CMD después de 30s. El build de pip tarda ~18s + export de capas ~7s = ~25s, pero en VPS lento se cortaba en "exporting layers".
+
+**Solución:** `bash -c 'nohup docker compose ... > /tmp/focus_build3.log 2>&1 < /dev/null &'` — bash lanza nohup en background y sale inmediatamente, timeout ve bash salir en ~0s y termina sin matar el proceso hijo. El proceso nohup queda completamente independiente.
+
+**Problema 3 — Modificar docker-compose.yml en el VPS sin SSH directo:** No hay acceso SSH interactivo ni editor disponible via `/run`. Solución: script Python en base64 que abre el archivo, busca `\nvolumes:` con `str.replace(..., 1)` e inserta el bloque de `focus_guardian` antes.
+
+**Problema 4 — `psql -f archivo` falla:** El path `/opt/11mkeys_lab/scripts/create_focus_checkins.sql` no está montado en el container postgres. Fix: pasar el SQL inline con `-c "CREATE TABLE ..."`.
+
+**Problema 5 — `git pull` sin tracking:** El repo VPS no tiene rama tracking configurada → `git -C /opt/11mkeys_lab pull origin master` explícito.
+
+### 5. Deploy final
+
+```
+Container focus_guardian Started
+Focus Guardian arrancando…
+Pool de PostgreSQL inicializado
+Added job "send_morning_checkin" — 12:00 UTC
+Added job "check_morning_timeout" — 14:00 UTC
+Added job "send_evening_checkin" — 00:00 UTC
+Scheduler started
+Application started
+```
+
+Estado: **operativo ✅** — primer check-in mañana a las 12:00 UTC (09:00 Uruguay).
+
+### Commits de la sesión
+- `88f4f79` — feat: blacklist comandos peligrosos en /run del PM Agent
+- `856ef87` — feat: Focus Guardian v1 — check-ins manana/noche via Telegram
+- `1b0efa0` — chore: agregar requirements.txt para build de agentes 11mkeys_lab
+- `4501cc3` — docs: Focus Guardian deployado — CLAUDE.md actualizado
