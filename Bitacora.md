@@ -2518,3 +2518,60 @@ Nunca reportar "completado" si el servicio sigue en estado de error.
 
 - **chainid fix:** revisar el fix propuesto por el Code Agent que hardcodea `chainid:1` en `EtherscanClient` y `BscClient`. El fix es incorrecto para BSC, que requiere `chainid:56`. El fix correcto es verificar `self._CHAIN_ID` en el `__init__` de cada clase.
 - **Health check semanal:** establecer health check de los domingos para el workflow "Code Agent v5-fix-chatid".
+
+---
+
+## Sesión 2026-06-24 — /run en PM Agent + eliminación contenedor Python huérfano
+
+### Objetivo
+Agregar comando `/run [comando]` al workflow n8n PM Agent para ejecutar comandos arbitrarios en el VPS desde Telegram.
+
+### Diagnóstico workflow previo
+Workflow `11Mkeys PM Agent` (id `HlY3gLWuJowyITB9`) obtenido vía `GET /api/v1/workflows` (lista). Switch v3 `Route Command` tenía 5 reglas + fallback (`/estado`, `/tareas`, `/blockers`, `/nueva`, `/done`). 25 nodos totales.
+
+### Nodos agregados (6 nuevos)
+```
+Route Command output 5 → Prep Run (Code v2) — valida args no vacíos
+  → IF Run Valid (IF v2)
+    true  → SSH Run (SSH v1, cred jDAII1GLoOwffiad) — timeout 30 {{ $json.safe_cmd }}
+              → Fmt Run (Code v2) — stdout+stderr, cap 3800 chars, Markdown code block
+                → Send Run (Telegram v1.2, cred JGUqhrTxSR2RjdYy)
+    false → Send Run Error (Telegram v1.2)
+Route Command output 6 → Send Help (fallback, antes output 5)
+```
+
+Send Help actualizado: agrega línea `/run [cmd] — ejecutar comando en VPS`.
+
+### Problema API — 403 en endpoints individuales
+La API key anterior (`workflow:read` + `workflow:update`) devolvía 403 tanto en `GET /api/v1/workflows/{id}` como en `PUT /api/v1/workflows/{id}`. Causa: en esta versión de n8n esos scopes no cubren endpoints individuales. El `GET /api/v1/workflows` (lista) y `POST /api/v1/audit` sí funcionaban.
+
+**Solución:** regenerar API key con TODOS los scopes desde n8n UI (Settings → API). Con la nueva key el `PUT /api/v1/workflows/HlY3gLWuJowyITB9` retornó 200.
+
+### Implementación
+Payload construido en PowerShell con `ConvertFrom-Json`/`ConvertTo-Json -Depth 20`. Trampas superadas:
+- Caracteres non-ASCII en `.ps1` guardado por Write tool (UTF-8 sin BOM) → PS 5.1 lo lee como CP1252 → strings rompen. Fix: `@'...'@` here-strings con `\uXXXX` JSON escapes para emoji, `[char]0x2014` para em dash en PS.
+- `'` dentro de single-quoted PS strings → here-strings obligatorios para JSON con comillas simples.
+- `binaryMode` en `settings` → API lo rechaza; solo `{"executionOrder":"v1"}`.
+
+`PUT` exitoso: 31 nodos, 7 outputs en Route Command, workflow activo ✅.
+
+### Test end-to-end
+`/run docker ps` enviado via webhook (secreto `workflowId_nodeId`): output completo de 15 contenedores llegó a Telegram formateado en code block ✅.
+
+### Hallazgo: contenedor Python PM Agent huérfano
+Docker ps reveló `11mkeys_pm_agent` (`11mkeys-pm-agent:latest`, `python -m agents.pm.pm_agent`), Up 7 días, creado 2 semanas atrás. No está en ningún `docker-compose.yml` del repo local.
+
+**Inspeccionado via `/run docker inspect`:** usaba `PM_BOT_TOKEN=8818804931:…` — **el mismo token** que el workflow n8n. Conflicto directo: n8n tiene el webhook registrado; el contenedor Python intentaba hacer polling y quedaba sordo (Telegram rechaza polling si hay webhook activo). No hay código de `agents.pm` en el repo.
+
+**Acción:** `docker stop 11mkeys_pm_agent && docker rm 11mkeys_pm_agent` via `/run` ✅.
+
+### Estado final
+- PM Agent n8n operativo con `/run` ✅
+- Contenedor Python huérfano eliminado ✅
+- CLAUDE.md actualizado (PM Agent comandos + nota nodos SSH) ✅
+- Commits: `e7dc718` (feat /run), `e68463f` (fix contenedor huérfano)
+
+### Pendientes
+- Probar `/run` con comandos más complejos (pipes, python3, psql)
+- chainid fix (heredado de sesiones anteriores)
+- Health check semanal Code Agent (heredado)
