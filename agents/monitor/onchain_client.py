@@ -208,7 +208,7 @@ class EtherscanClient:
                     client.get(
                         ETHERSCAN_BASE,
                         params={
-                            'chainid': 1,
+                            'chainid': self._CHAIN_ID,
                             'module': 'token',
                             'action': 'tokenholderlist',
                             'contractaddress': contract_address,
@@ -273,7 +273,7 @@ class BscClient:
                     client.get(
                         ETHERSCAN_BASE,
                         params={
-                            'chainid': 56,
+                            'chainid': self._CHAIN_ID,
                             'module': 'token',
                             'action': 'tokenholderlist',
                             'contractaddress': contract_address,
