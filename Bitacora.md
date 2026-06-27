@@ -2692,3 +2692,86 @@ Comportamiento esperado: fuera del horario de scheduler (`morning_pending = Fals
 - `1b0efa0` — chore: agregar requirements.txt para build de agentes 11mkeys_lab
 - `4501cc3` — docs: Focus Guardian deployado — CLAUDE.md actualizado
 - `062212e` — docs: bitacora sesion 2026-06-25
+
+---
+
+## Sesión 2026-06-27 — chainid fix en EtherscanClient/BscClient + deploy monitor
+
+### 1. Diagnóstico del bug
+
+El CLAUDE.md tenía pendiente un "chainid fix": el Code Agent había hardcodeado `chainid:1` en las llamadas al endpoint `tokenholderlist` de Etherscan V2, tanto en `EtherscanClient` como en `BscClient`. Para `EtherscanClient` (Ethereum) el valor 1 es correcto por casualidad, pero para `BscClient` (BNB Chain) debería ser 56.
+
+Lectura del archivo local `agents/monitor/onchain_client.py` mostró que:
+- `EtherscanClient._CHAIN_ID = 1` ✅ (atributo de clase correcto)
+- `BscClient._CHAIN_ID = 56` ✅ (atributo de clase correcto)
+- Pero el primer request en `get_holder_concentration()` de cada clase usaba el **literal** (`1` y `56`) en vez de `self._CHAIN_ID`
+- El segundo request ya usaba `self._CHAIN_ID` correctamente — inconsistencia interna
+
+### 2. Fix aplicado
+
+Dos ediciones en `agents/monitor/onchain_client.py`:
+
+```python
+# EtherscanClient.get_holder_concentration — línea 211
+- 'chainid': 1,
++ 'chainid': self._CHAIN_ID,
+
+# BscClient.get_holder_concentration — línea 276
+- 'chainid': 56,
++ 'chainid': self._CHAIN_ID,
+```
+
+Commit `b4a14b7` → push a origin/master.
+
+### 3. Deploy al VPS — divergencia de repos
+
+Al intentar `git pull` en `/opt/crypto_agent_system`, se descubrió que el VPS tiene 7 commits locales que nunca fueron pusheados al remote:
+
+```
+2fedbf0 Merge: integrar fix de onchain_client.py con stub de referencia a 11mkeys_lab
+aafa8fb docs: reemplazar CLAUDE.md y Bitacora.md por referencia a 11mkeys_lab
+14f8c8c restore: onchain_client.py correcto — revertido daño Code Agent
+ae86464 fix: etherscan API V1 to V2 + chainid [auto 11Mkeys]
+5303a8a fix: etherscan API V1 to V2 + chainid [auto 11Mkeys]
+5ae670f fix: etherscan API V1 to V2 + chainid [auto 11Mkeys]
+c1df0b6 docs: PM Agent — migración a nodos SSH, cableado completo y bot unificado
+```
+
+Los commits `5ae670f/5303a8a/ae86464` son los fixes malos del Code Agent. El commit `14f8c8c restore` los revirtió. Los commits de docs reemplazaron CLAUDE.md y Bitacora con stubs. El `docker-compose.yml` del VPS tiene 286 líneas extra respecto a origin (n8n, focus_guardian, límites, etc.) — **no se puede resetear sin perder la infra**.
+
+**Decisión:** no hacer reset. En cambio, usar `/opt/11mkeys_lab` (alineado con origin/master) como fuente de la verdad y copiar solo el archivo que necesitaba el fix.
+
+### 4. Estrategia de deploy por `cp`
+
+```bash
+# via /run del PM Agent:
+cp /opt/11mkeys_lab/agents/monitor/onchain_client.py \
+   /opt/crypto_agent_system/agents/monitor/onchain_client.py
+```
+
+Verificación post-copia con `grep -n CHAIN_ID`:
+```
+161: _CHAIN_ID = 1  # Ethereum mainnet
+178: "chainid": self._CHAIN_ID,
+224: "chainid": self._CHAIN_ID,   ← fix EtherscanClient
+258: _CHAIN_ID = 56  # BNB Chain
+289: "chainid": self._CHAIN_ID,   ← fix BscClient
+```
+
+### 5. Rebuild y restart del monitor
+
+Build lanzado en background con el truco `bash -c 'nohup ... < /dev/null &'` para evadir el timeout 30s del nodo SSH Run. Build completó en ~81s (`#14 DONE 80.9s`). Restart con `docker compose up -d --no-deps monitor`.
+
+**Resultado:** `Container crypto_agent_system-monitor-1 Started`. Primer ciclo post-deploy: `tokens: 90, published: 86, errors: 0` ✅.
+
+### 6. Lección clave — dos repos en el VPS
+
+El VPS tiene dos clones del mismo repositorio GitHub (`mdiazai/crypto_agent_system`):
+- `/opt/crypto_agent_system` — producción del Crypto Agent System, con historial local divergente
+- `/opt/11mkeys_lab` — lab projects, alineado con origin/master
+
+Cuando `/opt/crypto_agent_system` diverge y no se puede resetear (por infra local), usar `/opt/11mkeys_lab` como fuente y copiar archivos específicos es la estrategia correcta.
+
+### Commits de la sesión
+- `b4a14b7` — fix: use _CHAIN_ID class attribute instead of hardcoded literals in Etherscan/BscClient
+- `4e448d6` — docs: marcar chainid fix como completado, actualizar estado del sistema 2026-06-27
