@@ -96,8 +96,9 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **SmartDevops Agent:** Telegram Trigger (callback_query) → Route Command → SSH execute/ignore → Telegram notify
 - **PM Agent:** Telegram Trigger → Parse Input → Route Command → nodos SSH (queries psql) → Fmt → Telegram
   - id `HlY3gLWuJowyITB9` — comandos `/estado`, `/tareas`, `/blockers`, nueva tarea, marcar done
-- **Weekly Board Agent:** Schedule (domingos 13:00 UTC) → 5x SSH queries → Format Message → Telegram
-  - id `rJzmIz9h7XHDymGB` — report semanal: focus checkins, top 5 tokens, containers, alertas, tareas lab
+- **Weekly Board Agent:** Schedule (domingos 13:00 UTC) → 5x SSH queries → HTTP Workflows Status → Format Message → Telegram
+  - id `rJzmIz9h7XHDymGB` — report semanal: focus checkins, top 5 tokens, containers, alertas, tareas lab, estado workflows
+  - Sección "WORKFLOWS": llama GET /api/v1/workflows, marca 🟢 todos activos o 🔴 alerta si alguno inactivo
   - Entrega: chat_id 6517856768 via @ElevenMkeys_PM_Bot (cred JGUqhrTxSR2RjdYy)
 
 ## PM Agent — nodos SSH (2026-06-13)
@@ -162,9 +163,9 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Orchestrator: estable ✅**
 - **Claude Code CLI: instalado en VPS** — v2.1.168, auth via `ANTHROPIC_API_KEY` en `~/.bashrc`
 - Umbral de alerta (70 pts): no alcanzado — requiere token con volumen > $3M diario
-- **Weekly Board Agent: deployado y activo ✅** (2026-06-27) — id `rJzmIz9h7XHDymGB`, dispara domingos 13:00 UTC
-- **Pendiente — health check semanal:** establecer health check de domingos para workflow "Code Agent v5-fix-chatid"
-- **Pendiente — N8N_API_KEY:** agregar key al `.env` del VPS para no tener que extraerla de la DB cada vez
+- **Weekly Board Agent: deployado y activo ✅** (2026-06-27) — id `rJzmIz9h7XHDymGB`, 9 nodos, dispara domingos 13:00 UTC
+- **Health check semanal workflows: incluido en Weekly Board ✅** — sección WORKFLOWS con detección de inactivos
+- **N8N_API_KEY: agregada a /opt/crypto_agent_system/.env ✅** (2026-06-27)
 
 ## Fix scorer aplanado (2026-06-07)
 - **Root cause**: `inflow_threshold_usd=500k` calibrado para large-caps; `inflow_1h_usd=None` hardcodeado; CryptoQuant solo cubre BTC/ETH/etc.
