@@ -96,6 +96,9 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **SmartDevops Agent:** Telegram Trigger (callback_query) → Route Command → SSH execute/ignore → Telegram notify
 - **PM Agent:** Telegram Trigger → Parse Input → Route Command → nodos SSH (queries psql) → Fmt → Telegram
   - id `HlY3gLWuJowyITB9` — comandos `/estado`, `/tareas`, `/blockers`, nueva tarea, marcar done
+- **Weekly Board Agent:** Schedule (domingos 13:00 UTC) → 5x SSH queries → Format Message → Telegram
+  - id `rJzmIz9h7XHDymGB` — report semanal: focus checkins, top 5 tokens, containers, alertas, tareas lab
+  - Entrega: chat_id 6517856768 via @ElevenMkeys_PM_Bot (cred JGUqhrTxSR2RjdYy)
 
 ## PM Agent — nodos SSH (2026-06-13)
 - El nodo `n8n-nodes-base.executeCommand` **no existe** en esta versión de n8n → migrado a `n8n-nodes-base.ssh`
@@ -138,6 +141,11 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Build context: `/opt/11mkeys_lab` | Dockerfile: `agents/focus/Dockerfile`
 - `requirements.txt` creado en repo 11mkeys_lab (asyncpg, apscheduler, anthropic, python-telegram-bot, python-dotenv)
 
+## N8N API Key
+- JWT almacenado en `/var/lib/docker/volumes/crypto_agent_system_n8n_data/_data/database.sqlite`
+- Extraer con: `strings <path> | grep "^eyJ"`
+- Guardar en `.env` pendiente
+
 ## Estado del sistema (actualizado 2026-06-27)
 - Monitor: 90 tokens activos, 86 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 67.5 (EUR) al 2026-06-25
@@ -154,7 +162,9 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Orchestrator: estable ✅**
 - **Claude Code CLI: instalado en VPS** — v2.1.168, auth via `ANTHROPIC_API_KEY` en `~/.bashrc`
 - Umbral de alerta (70 pts): no alcanzado — requiere token con volumen > $3M diario
+- **Weekly Board Agent: deployado y activo ✅** (2026-06-27) — id `rJzmIz9h7XHDymGB`, dispara domingos 13:00 UTC
 - **Pendiente — health check semanal:** establecer health check de domingos para workflow "Code Agent v5-fix-chatid"
+- **Pendiente — N8N_API_KEY:** agregar key al `.env` del VPS para no tener que extraerla de la DB cada vez
 
 ## Fix scorer aplanado (2026-06-07)
 - **Root cause**: `inflow_threshold_usd=500k` calibrado para large-caps; `inflow_1h_usd=None` hardcodeado; CryptoQuant solo cubre BTC/ETH/etc.

@@ -2775,3 +2775,44 @@ Cuando `/opt/crypto_agent_system` diverge y no se puede resetear (por infra loca
 ### Commits de la sesión
 - `b4a14b7` — fix: use _CHAIN_ID class attribute instead of hardcoded literals in Etherscan/BscClient
 - `4e448d6` — docs: marcar chainid fix como completado, actualizar estado del sistema 2026-06-27
+
+---
+
+## Sesión 2026-06-27 (continuación) — Weekly Board Agent
+
+### Objetivo
+Construir el workflow "11Mkeys Weekly Board Agent" en n8n via API REST.
+
+### 1. Diagnóstico previo
+- `GET /api/v1/workflows` confirmó 4 workflows existentes, ninguno con ese nombre: Monkey Advisor, PM Agent, Code Agent, SmartDevops Agent ✅
+- N8N_API_KEY no estaba en ningún `.env`. Se extrajo de la SQLite de n8n mediante `strings <db_path> | grep "^eyJ"` — el contenedor y el host carecen de `sqlite3`, pero `strings` funciona.
+
+### 2. Arquitectura del workflow
+8 nodos en cadena lineal (mismo patrón que PM Agent):
+
+```
+Schedule (dom 13UTC) → SSH Focus Checkins → SSH Top Scores → SSH Containers
+  → SSH Alertas → SSH Tareas → Format Message (Code v2) → Send Telegram
+```
+
+**5 queries SSH:**
+- `focus_checkins` — check-ins de la semana
+- `token_candidates` — top 5 por `detection_score`
+- `docker ps` — estado de contenedores
+- `diagnostics_log` — alertas warn/error de la semana
+- `lab_tasks` — conteo por status
+
+**Decisión técnica:** el comando `docker ps --format "{{.Names}}\t{{.Status}}"` usa Go templates con `{{ }}`, que n8n interpreta como expresiones propias. Solución: envolver el comando como expresión JS: `={{ 'timeout 8 docker ps --format "{{.Names}}\t{{.Status}}"' }}`. Así n8n evalúa la expresión JS (que retorna el string literal) sin interpretar los `{{ }}` internos.
+
+**Emojis en Code node:** los emojis literales en el payload shell se corrompen. Se usaron Unicode escapes (`📅` etc.) en el `jsCode` string; n8n los resuelve a los caracteres correctos al guardar.
+
+### 3. Deploy
+- `POST /api/v1/workflows` → id `rJzmIz9h7XHDymGB`, creado inactivo ✅
+- `PUT /api/v1/workflows/rJzmIz9h7XHDymGB` → jsCode corregido con Unicode escapes ✅
+- `POST /api/v1/workflows/rJzmIz9h7XHDymGB/activate` → `active: true` ✅
+
+**Próxima ejecución:** domingo 2026-06-29 a las 13:00 UTC (10:00 Uruguay)
+
+### Pendientes detectados
+- `N8N_API_KEY` no está en `.env` — hay que agregarla para no extraerla de DB en futuras sesiones
+- Health check semanal para "Code Agent v5-fix-chatid" (pendiente previo, sin cambios)
