@@ -98,7 +98,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - id `HlY3gLWuJowyITB9` — comandos `/estado`, `/tareas`, `/blockers`, nueva tarea, marcar done
 - **Weekly Board Agent:** Schedule (domingos 13:00 UTC) → 5x SSH queries → HTTP Workflows Status → Format Message → Telegram
   - id `rJzmIz9h7XHDymGB` — report semanal: focus checkins, top 5 tokens, containers, alertas, tareas lab, estado workflows
-  - Sección "WORKFLOWS": llama GET /api/v1/workflows, marca 🟢 todos activos o 🔴 alerta si alguno inactivo
+  - Sección "🔧 WORKFLOWS": llama GET /api/v1/workflows, marca ✅ activo o ⚠️ inactivo por workflow
   - Entrega: chat_id 6517856768 via @ElevenMkeys_PM_Bot (cred JGUqhrTxSR2RjdYy)
 
 ## PM Agent — nodos SSH (2026-06-13)
