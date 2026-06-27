@@ -138,23 +138,22 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Build context: `/opt/11mkeys_lab` | Dockerfile: `agents/focus/Dockerfile`
 - `requirements.txt` creado en repo 11mkeys_lab (asyncpg, apscheduler, anthropic, python-telegram-bot, python-dotenv)
 
-## Estado del sistema (actualizado 2026-06-25)
-- Monitor: 84 tokens activos, 83 publicados, 0 errores por ciclo
+## Estado del sistema (actualizado 2026-06-27)
+- Monitor: 90 tokens activos, 86 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 67.5 (EUR) al 2026-06-25
 - `holder_concentration_pct` activo vía Moralis ✅
 - `agents/monitor/onchain_client.py`: CoinglassClient → **CCXTDerivativesClient** ✅ (MEXC/Bitget perpetuos, cache Redis 5 min)
 - `agents/monitor/data_fetcher.py`: `get_funding_rate()` wired al pipeline ✅ — fallback a spot si None
 - ZINC/USDT: removido de `token_candidates` (`status='removed'`) ✅
+- **chainid fix deployado ✅** (2026-06-27) — `EtherscanClient` y `BscClient` usan `self._CHAIN_ID` en todos los params; commit `b4a14b7`; monitor rebuildeado y corriendo sin errores
 - **SmartDevops Agent: deployado y operativo ✅**
 - **PM Agent: reconstruido y operativo ✅** (2026-06-13)
   - `/run [cmd]` operativo con blacklist: `rm -rf`, `docker rm`, `docker rmi`, `git push`, `git reset --hard`
 - **Focus Guardian: deployado y operativo ✅** (2026-06-25)
   - Container `focus_guardian` en `crypto_agent_network`, bot `@ElevenMkeys_Focus_bot`
-  - Primer check-in real: mañana 09:00 Uruguay (12:00 UTC)
 - **Orchestrator: estable ✅**
 - **Claude Code CLI: instalado en VPS** — v2.1.168, auth via `ANTHROPIC_API_KEY` en `~/.bashrc`
 - Umbral de alerta (70 pts): no alcanzado — requiere token con volumen > $3M diario
-- **Pendiente — chainid fix:** revisar fix de Code Agent que hardcodea `chainid:1` en `EtherscanClient` y `BscClient`; incorrecto para BSC (requiere `chainid:56`) — el fix correcto verifica `self._CHAIN_ID` en `__init__` de cada clase
 - **Pendiente — health check semanal:** establecer health check de domingos para workflow "Code Agent v5-fix-chatid"
 
 ## Fix scorer aplanado (2026-06-07)
