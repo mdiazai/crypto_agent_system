@@ -152,7 +152,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Lecciones n8n Telegram node: usar **typeVersion 1.2** + `additionalFields: {}`; typeVersion 1 da 400 Bad Request
 - `docker ps --format "{{.Names}}"` rompe n8n (Go templates conflictan con expresiones n8n) — usar `docker ps | awk 'NR>1 {print "UP " $NF}'`
 
-## Estado del sistema (actualizado 2026-06-27)
+## Estado del sistema (actualizado 2026-06-28)
 - Monitor: 90 tokens activos, 86 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 67.5 (EUR) al 2026-06-25
 - `holder_concentration_pct` activo vía Moralis ✅
@@ -160,7 +160,10 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - `agents/monitor/data_fetcher.py`: `get_funding_rate()` wired al pipeline ✅ — fallback a spot si None
 - ZINC/USDT: removido de `token_candidates` (`status='removed'`) ✅
 - **chainid fix deployado ✅** (2026-06-27) — `EtherscanClient` y `BscClient` usan `self._CHAIN_ID` en todos los params; commit `b4a14b7`; monitor rebuildeado y corriendo sin errores
-- **SmartDevops Agent: deployado y operativo ✅**
+- **SmartDevops Agent: operativo y entregando mensajes Telegram ✅** (2026-06-28)
+  - Falso positivo "discovery inactivo" eliminado — usa Redis TTL `discovery:last_run` ✅
+  - Telegram migrado a MarkdownV2 con `_esc()`/`_esc_code()` — entrega confirmada ✅ (commit `55fb870`)
+  - `fix_description` field en respuesta Claude + regla 6b (schema DB) ✅
 - **PM Agent: reconstruido y operativo ✅** (2026-06-13)
   - `/run [cmd]` operativo con blacklist: `rm -rf`, `docker rm`, `docker rmi`, `git push`, `git reset --hard`
 - **Focus Guardian: deployado y operativo ✅** (2026-06-25)

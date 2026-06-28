@@ -3016,3 +3016,50 @@ Git pull no había corrido antes del build. Usar siempre `git -C /path fetch ori
 ### Commits
 - `764a99d` — feat: smartdevops — regla 6b DB schema errors + fix_description field
 - `8d816fd` — fix: smartdevops false alarm — discovery activity via Redis heartbeat
+- `7c00352` — docs: CLAUDE.md — docker build directo, SSH key, git pull workflow
+
+---
+
+## Sesión 2026-06-28 — Telegram MarkdownV2 fix + verificación SmartDevops
+
+### Contexto
+SmartDevops estaba generando falso positivo sobre "discovery inactivo" (corregido en sesión anterior), pero los mensajes Telegram seguían fallando con HTTP 400. El bug bloqueaba el ciclo: la key `smartdevops:pending_command` se escribía en Redis aunque el mensaje no se entregaba, y SmartDevops saltaba los siguientes ciclos (pending_exists_skipping).
+
+### Root cause del 400
+
+El `telegram_notifier.py` usaba `parse_mode: "Markdown"` (v1). Claude retornaba texto de diagnóstico con backticks inline (ej: `` `SELECT MAX(created_at)...` ``). Los backticks en el campo `diagnosis` dentro del mensaje Markdown rompían el parser de Telegram (error "can't find end of entity at byte 585/711").
+
+Intento 1: reemplazar backticks por comillas simples en diagnosis → byte offset cambió (585→711) pero el 400 persistió. Otros caracteres especiales sin escapar.
+
+### Fix definitivo
+
+Migración a **MarkdownV2** con escape completo del contenido dinámico:
+
+```python
+_MD_SPECIAL = re.compile(r'([_*\[\]()~`>#+=|{}.!\-\\])')
+
+def _esc(text: str) -> str:
+    return _MD_SPECIAL.sub(r'\\\1', text)
+
+def _esc_code(text: str) -> str:
+    return text.replace('\\', '\\\\').replace('`', '\\`')
+```
+
+- `_esc()` en `diagnosis` y `severity` (texto plano en Markdown)
+- `_esc_code()` en `fix_command` dentro de code span
+- `parse_mode: "MarkdownV2"` en `_send_message()`
+
+### Resultado
+
+Ciclo 18:29 UTC:
+- `telegram_notifier.sent` ✅ — primer mensaje entregado exitosamente
+- Diagnóstico: "discovery activo hace 1h, scorer/executor heartbeat ok, monitor ciclando cada ~2 min"
+- severity=warn residual por error `created_at` aún en log buffer de postgres (de ciclos anteriores) → self-resolve en 1-2 ciclos
+
+### Discovery heartbeat confirmado
+
+`discovery:last_run` TTL=99998 (al verificar). Discovery visto como "activo hace 1h" por SmartDevops. Falso positivo eliminado ✅.
+
+### Commits
+- `cc57274` — fix: escape backticks in SmartDevops diagnosis (intento parcial)
+- `55fb870` — fix: switch SmartDevops Telegram to MarkdownV2 with proper escaping
