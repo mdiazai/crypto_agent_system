@@ -11,7 +11,7 @@ donde ya corre el Crypto Agent System.
 
 ## VPS
 - IP: 167.88.33.68
-- SSH: ssh root@167.88.33.68
+- SSH: `ssh root@167.88.33.68` — clave `~/.ssh/id_11mkeys` (configurada en `~/.ssh/config`)
 - Proyecto crypto: /opt/crypto_agent_system
 - Proyecto lab: /opt/11mkeys_lab (a crear)
 
@@ -126,11 +126,14 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - `docker compose exec postgres` se cuelga — usar `docker exec` directo con `timeout`
 
 ## Comandos seguros para este VPS
-- Logs: `tail -N /var/lib/docker/containers/CONTAINER_ID/*-json.log`
-- LogPath (obtener ruta real): `docker inspect CONTAINER --format "{{.LogPath}}"`
+- Logs: `docker inspect CONTAINER --format '{{.LogPath}}' | xargs tail -N`
 - Status DB: `timeout 10 docker exec crypto_agent_system-postgres-1 psql -U postgres -d crypto_agent -c "QUERY"`
-- Status containers: `timeout 8 docker ps --format ...`
+- Status containers: `timeout 8 docker ps | awk 'NR>1 {print "UP " $NF}'`
+- **Build de servicios:** `docker build -f /opt/crypto_agent_system/agents/SERVICE/Dockerfile -t crypto_agent_system-SERVICE:latest /opt/crypto_agent_system`
+- **Restart:** `docker restart crypto_agent_system-SERVICE-1`
 - **NUNCA usar:** `docker compose logs` (se cuelga), `docker compose exec postgres` (se cuelga)
+- **NO usar:** `docker compose build` — el `docker-compose.yml` tiene error de validación en v5.1.3 (`deploy.resources` no permitido). Usar `docker build` directo (ver arriba).
+- **Git pull en VPS:** `git -C /opt/crypto_agent_system fetch origin master && git -C /opt/crypto_agent_system reset --hard origin/master`
 
 ## Focus Guardian — Bot de check-ins (deployado 2026-06-25)
 - Container: `focus_guardian` en `crypto_agent_network`
