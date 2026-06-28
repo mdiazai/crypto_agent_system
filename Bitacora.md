@@ -2962,3 +2962,31 @@ Nuevo campo en el JSON de respuesta de Claude (`≤80 chars`, en español). Desc
 
 ### Commit
 - `764a99d` — feat: smartdevops — regla 6b DB schema errors + fix_description field
+
+---
+
+## Sesión 2026-06-27 (continuación 5) — SmartDevops: fix falso positivo discovery inactivo
+
+### Síntoma
+SmartDevops enviaba siempre "⚠️ Agentes sin actividad — discovery — Verifica los contenedores." en cada ciclo, incluso con Discovery corriendo normalmente. Además Claude generaba "Verifica los contenedores" en vez del `docker restart` que el sistema prompt indica.
+
+### Root cause
+
+**`health_checker.py` medía `MAX(created_at) FROM token_candidates`** para determinar si Discovery corrió recientemente. Esta métrica solo cambia cuando se *inserta* un token nuevo. Si Discovery corre pero todos los tokens ya estaban en DB (caso habitual), `MAX(created_at)` no se actualiza → SmartDevops reporta discovery inactivo indefinidamente. Falso positivo estructural.
+
+Claude decía "Verifica los contenedores" porque el sistema prompt prohíbe esa frase para otros casos, pero Claude la generaba de todos modos al no encontrar una regla exacta que cubriera el patrón — síntoma secundario del dato incorrecto.
+
+### Fix
+
+**`discovery_agent.py`:** al final de cada `run()` exitoso, escribe `SETEX discovery:last_run 100800 ok` en Redis (TTL 28h = margen sobre el intervalo diario de 24h). Mismo patrón que `scorer:heartbeat` y `executor:heartbeat`.
+
+**`health_checker.py`:** reemplaza la query `MAX(created_at)` por un `TTL("discovery:last_run")` en Redis. Consolidado en el mismo bloque de conexión que scorer/executor (una sola conexión Redis para los tres heartbeats). `elapsed_h = (100800 - ttl) / 3600` calcula cuántas horas hace que corrió.
+
+### Deploy
+- `git pull` + `docker compose build discovery smartdevops` (background, `/tmp/build_heartbeat.log`) ✅
+- `docker compose up -d --no-deps discovery smartdevops` ✅
+- Primer run de Discovery escribe `discovery:last_run` → SmartDevops deja de reportar falso positivo en el siguiente ciclo
+
+### Commits
+- `764a99d` — feat: smartdevops — regla 6b DB schema errors + fix_description field
+- `8d816fd` — fix: smartdevops false alarm — discovery activity via Redis heartbeat
