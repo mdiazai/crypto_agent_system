@@ -2932,8 +2932,8 @@ WHERE (chain IS NULL OR chain = 'unknown') AND contract_address IS NOT NULL;
 
 ### Deploy
 - `git pull` en VPS ✅
-- `docker compose build monitor discovery` (background, `/tmp/build_chain_fix.log`) → pendiente verificación
-- `docker compose up -d --no-deps monitor discovery` → pendiente post-build
+- `docker compose build monitor discovery` (background, `/tmp/build_chain_fix.log`) ✅
+- `docker compose up -d --no-deps monitor discovery` ✅
 
 ### Commit
 - `b70522a` — fix: chain='unknown' tokens excluded from holder refresh + contract overwrite bug
