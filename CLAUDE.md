@@ -145,7 +145,9 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 ## N8N API Key
 - JWT almacenado en `/var/lib/docker/volumes/crypto_agent_system_n8n_data/_data/database.sqlite`
 - Extraer con: `strings <path> | grep "^eyJ"`
-- Guardar en `.env` pendiente
+- Guardada en `/opt/crypto_agent_system/.env` como `N8N_API_KEY` ✅ (2026-06-27)
+- Lecciones n8n Telegram node: usar **typeVersion 1.2** + `additionalFields: {}`; typeVersion 1 da 400 Bad Request
+- `docker ps --format "{{.Names}}"` rompe n8n (Go templates conflictan con expresiones n8n) — usar `docker ps | awk 'NR>1 {print "UP " $NF}'`
 
 ## Estado del sistema (actualizado 2026-06-27)
 - Monitor: 90 tokens activos, 86 publicados, 0 errores por ciclo
@@ -163,7 +165,8 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Orchestrator: estable ✅**
 - **Claude Code CLI: instalado en VPS** — v2.1.168, auth via `ANTHROPIC_API_KEY` en `~/.bashrc`
 - Umbral de alerta (70 pts): no alcanzado — requiere token con volumen > $3M diario
-- **Weekly Board Agent: deployado y activo ✅** (2026-06-27) — id `rJzmIz9h7XHDymGB`, 9 nodos, dispara domingos 13:00 UTC
+- **Weekly Board Agent: deployado, activo y probado ✅** (2026-06-27) — id `rJzmIz9h7XHDymGB`, 9 nodos, dispara domingos 13:00 UTC
+  - Ejecución manual exec 328: `status=success` ✅ — reporte entregado a Telegram
 - **Health check semanal workflows: incluido en Weekly Board ✅** — sección WORKFLOWS con detección de inactivos
 - **N8N_API_KEY: agregada a /opt/crypto_agent_system/.env ✅** (2026-06-27)
 
