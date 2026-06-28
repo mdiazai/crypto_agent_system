@@ -47,11 +47,13 @@ class TelegramNotifier:
         self, severity: str, diagnosis: str, fix_command: str | None
     ) -> None:
         emoji = _SEVERITY_EMOJI.get(severity, "⚠️")
+        # Backticks in diagnosis text break Telegram Markdown parser
+        diagnosis_safe = diagnosis.replace("`", "'")
         lines = [
             f"🤖 *SmartDevops Diagnosis* {emoji}",
             "",
             f"*Severidad:* {severity.upper()}",
-            f"*Diagnóstico:* {diagnosis}",
+            f"*Diagnóstico:* {diagnosis_safe}",
         ]
 
         if fix_command:
