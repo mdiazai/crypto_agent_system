@@ -525,7 +525,7 @@ class OnchainClient:
         if not contract_address:
             return None, None
 
-        detected = chain or _detect_chain(contract_address)
+        detected = (chain if chain and chain != "unknown" else None) or _detect_chain(contract_address)
 
         if detected == "solana":
             pct = await self.helius.get_holder_concentration(contract_address)

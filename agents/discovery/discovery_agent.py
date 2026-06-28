@@ -119,14 +119,14 @@ class DiscoveryAgent:
         async with get_session() as session:
             for token in passing:
                 if token.symbol in existing_symbols:
+                    update_values: dict = {"last_checked": datetime.now(timezone.utc)}
+                    if token.eth_contract is not None:
+                        update_values["contract_address"] = token.eth_contract
+                        update_values["chain"] = token.chain
                     await session.execute(
                         update(TokenCandidate)
                         .where(TokenCandidate.symbol == token.symbol)
-                        .values(
-                            last_checked=datetime.now(timezone.utc),
-                            contract_address=token.eth_contract,
-                            chain=token.chain,
-                        )
+                        .values(**update_values)
                     )
                 else:
                     # New candidate

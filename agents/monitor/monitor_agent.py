@@ -177,7 +177,6 @@ class MonitorAgent:
                     select(TokenCandidate)
                     .where(TokenCandidate.status == TokenStatus.active)
                     .where(TokenCandidate.contract_address.isnot(None))
-                    .where(TokenCandidate.chain.in_(["evm", "solana"]))
                 )
             ).scalars().all()
 
