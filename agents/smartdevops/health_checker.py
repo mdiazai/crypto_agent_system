@@ -171,14 +171,21 @@ class HealthChecker:
         result: dict = {}
         now = datetime.now(timezone.utc)
 
-        # Redis heartbeats (TTL > 0 = agente vivo)
+        # Redis heartbeats — scorer, executor, discovery (todos en una conexión)
         try:
             r = aioredis.from_url(settings.redis_url, decode_responses=True)
-            scorer_ttl   = await r.ttl("scorer:heartbeat")
-            executor_ttl = await r.ttl("executor:heartbeat")
+            scorer_ttl    = await r.ttl("scorer:heartbeat")
+            executor_ttl  = await r.ttl("executor:heartbeat")
+            discovery_ttl = await r.ttl("discovery:last_run")
             await r.aclose()
             result["scorer_heartbeat"]   = "ok" if scorer_ttl > 0 else "missing"
             result["executor_heartbeat"] = "ok" if executor_ttl > 0 else "missing"
+            if discovery_ttl > 0:
+                result["discovery_last_scan_h"] = round((100800 - discovery_ttl) / 3600, 1)
+                result["discovery_ok"] = True
+            else:
+                result["discovery_last_scan_h"] = None
+                result["discovery_ok"] = False
         except Exception as e:
             result["heartbeat_error"] = str(e)
 
@@ -200,24 +207,5 @@ class HealthChecker:
                 result["monitor_ok"] = False
         except Exception as e:
             result["monitor_db_error"] = str(e)
-
-        # Actividad de discovery: MAX(created_at) en token_candidates
-        try:
-            async with get_session() as session:
-                row = await session.execute(
-                    text("SELECT MAX(created_at) FROM token_candidates")
-                )
-                last_created = row.scalar()
-            if last_created:
-                if last_created.tzinfo is None:
-                    last_created = last_created.replace(tzinfo=timezone.utc)
-                discovery_age = round((now - last_created).total_seconds() / 3600, 1)
-                result["discovery_last_scan_h"] = discovery_age
-                result["discovery_ok"] = discovery_age <= _DISCOVERY_STALE_H
-            else:
-                result["discovery_last_scan_h"] = None
-                result["discovery_ok"] = False
-        except Exception as e:
-            result["discovery_db_error"] = str(e)
 
         return result

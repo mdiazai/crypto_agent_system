@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 
+import redis.asyncio as aioredis
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
@@ -9,6 +10,9 @@ from sqlalchemy import select, update
 from shared.config import settings
 from shared.models import TokenCandidate, TokenStatus, PatternType, get_session
 from shared.redis_bus import bus, Channel
+
+DISCOVERY_LAST_RUN_KEY = "discovery:last_run"
+DISCOVERY_LAST_RUN_TTL = 100800  # 28h — margen sobre intervalo de 24h
 
 from .exchange_scanner import ExchangeScanner
 from .pre_screener import PreScreener
@@ -161,6 +165,14 @@ class DiscoveryAgent:
 
         # 7. Publish to Redis
         await bus.publish(Channel.DISCOVERY_NEW_CANDIDATES, result.model_dump())
+
+        # 8. Heartbeat para SmartDevops — TTL 28h, se renueva en cada run exitoso
+        try:
+            r = aioredis.from_url(settings.redis_url, decode_responses=True)
+            await r.setex(DISCOVERY_LAST_RUN_KEY, DISCOVERY_LAST_RUN_TTL, "ok")
+            await r.aclose()
+        except Exception as e:
+            log.warning("discovery_agent.heartbeat_error", error=str(e))
 
         log.info(
             "discovery_agent.run_completed",
