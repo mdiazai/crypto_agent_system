@@ -2937,3 +2937,28 @@ WHERE (chain IS NULL OR chain = 'unknown') AND contract_address IS NOT NULL;
 
 ### Commit
 - `b70522a` — fix: chain='unknown' tokens excluded from holder refresh + contract overwrite bug
+
+---
+
+## Sesión 2026-06-27 (continuación 4) — SmartDevops: regla 6b + fix_description
+
+### Cambios en `agents/smartdevops/claude_diagnostics.py`
+
+**Regla 6b — errores de esquema DB:**
+Agregada entre regla 6 y regla 7 del `_SYSTEM_PROMPT`. Cuando Claude detecta `UndefinedColumnError`, `UndefinedTableError` o `column does not exist` en los logs, ahora debe:
+- Usar `severity=warn` (no critical)
+- **No proponer `docker restart`** (no resuelve problemas de esquema)
+- Proponer un `fix_command` de tipo `SELECT column_name FROM information_schema.columns WHERE table_name=TABLE` para inspeccionar el esquema real
+- En `diagnosis`: explicar qué columna falta y en qué tabla, y sugerir revisar el código que genera la query
+
+Motivación: antes Claude proponía `docker restart monitor` ante un `UndefinedColumnError`, lo que reiniciaba el contenedor sin resolver nada y repetía el ciclo de error.
+
+**Campo `fix_description`:**
+Nuevo campo en el JSON de respuesta de Claude (`≤80 chars`, en español). Describe en texto legible qué hace el `fix_command`. Ejemplos: `"Reiniciar container monitor"`, `"Consultar esquema de tabla token_candidates"`. Propagado en el fallback de error también (`None`).
+
+### Deploy
+- `git pull` + `docker compose build smartdevops` (background, `/tmp/build_smartdevops.log`) ✅
+- `docker compose up -d --no-deps smartdevops` ✅
+
+### Commit
+- `764a99d` — feat: smartdevops — regla 6b DB schema errors + fix_description field
