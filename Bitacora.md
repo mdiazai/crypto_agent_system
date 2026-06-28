@@ -2877,3 +2877,63 @@ Completó en 3 segundos. Reporte entregado a Telegram (chat_id 6517856768).
 - `4a120fe` — docs: Weekly Board Agent v2 — agrega sección WORKFLOWS + health check
 - `ca948f1` — docs: Weekly Board Agent v3 — HTTP Workflows renombrado, jsCode simplificado
 - `097c571` — docs: Weekly Board Agent probado exitosamente — exec 328 success
+
+---
+
+## Sesión 2026-06-27 (continuación 3) — Fix chain='unknown' tokens excluidos de holder refresh
+
+### Problema
+Tokens activos con `contract_address` válido no recibían actualización de `holder_concentration_pct`. Eran excluidos silenciosamente por tres bugs encadenados.
+
+### Root cause (3 bugs)
+
+**Bug 1 — Filtro explícito en `refresh_holder_data` (monitor_agent.py:180):**
+```python
+.where(TokenCandidate.chain.in_(["evm", "solana"]))
+```
+Excluía todos los tokens con `chain=NULL` o `chain='unknown'`, aunque tuvieran una dirección `0x...` válida y detectar la chain fuera trivial.
+
+**Bug 2 — `chain or _detect_chain()` no maneja `'unknown'` (onchain_client.py:528):**
+```python
+detected = chain or _detect_chain(contract_address)
+```
+`'unknown'` es truthy en Python. El `or` devolvía `'unknown'` directamente sin llamar a `_detect_chain`. Ningún branch del `if detected ==` maneja `'unknown'`, así que el método retornaba `(None, None)` para esos tokens.
+
+**Bug 3 — Discovery sobreescribe `contract_address` con None (discovery_agent.py:122-129):**
+El UPDATE de tokens existentes incluía `contract_address=token.eth_contract` aunque fuera `None` (cuando CoinGecko no retorna el token en ese ciclo). Cada run de Discovery podía borrar una dirección correctamente encontrada previamente.
+
+### Fix aplicado
+
+**`monitor_agent.py`:** eliminar el filtro `chain.in_` — solo mantener `contract_address.isnot(None)`. La función `get_holder_concentration` ya maneja la detección automática.
+
+**`onchain_client.py`:** tratar `'unknown'` como falsy:
+```python
+detected = (chain if chain and chain != "unknown" else None) or _detect_chain(contract_address)
+```
+
+**`discovery_agent.py`:** solo sobreescribir `contract_address`/`chain` si el nuevo valor no es None:
+```python
+update_values: dict = {"last_checked": datetime.now(timezone.utc)}
+if token.eth_contract is not None:
+    update_values["contract_address"] = token.eth_contract
+    update_values["chain"] = token.chain
+await session.execute(update(TokenCandidate).where(...).values(**update_values))
+```
+
+**SQL de limpieza (ejecutado en DB):** normaliza los tokens existentes con `chain='unknown'` o `chain=NULL` + dirección válida:
+```sql
+UPDATE token_candidates SET chain = CASE
+    WHEN contract_address LIKE '0x%' AND LENGTH(contract_address) = 42 THEN 'evm'
+    WHEN contract_address NOT LIKE '0x%' AND LENGTH(contract_address) >= 32 THEN 'solana'
+    ELSE chain
+END
+WHERE (chain IS NULL OR chain = 'unknown') AND contract_address IS NOT NULL;
+```
+
+### Deploy
+- `git pull` en VPS ✅
+- `docker compose build monitor discovery` (background, `/tmp/build_chain_fix.log`) → pendiente verificación
+- `docker compose up -d --no-deps monitor discovery` → pendiente post-build
+
+### Commit
+- `b70522a` — fix: chain='unknown' tokens excluded from holder refresh + contract overwrite bug
