@@ -1,4 +1,5 @@
 import json
+import re
 
 import httpx
 import redis.asyncio as aioredis
@@ -12,6 +13,18 @@ REDIS_PENDING_KEY = "smartdevops:pending_command"
 REDIS_TTL = 3600  # 1 hora
 
 _SEVERITY_EMOJI = {"ok": "✅", "warn": "⚠️", "critical": "🚨"}
+
+_MD_SPECIAL = re.compile(r'([_*\[\]()~`>#+=|{}.!\-\\])')
+
+
+def _esc(text: str) -> str:
+    """Escape all MarkdownV2 special characters in plain text."""
+    return _MD_SPECIAL.sub(r'\\\1', text)
+
+
+def _esc_code(text: str) -> str:
+    """Escape only backtick and backslash inside a code span."""
+    return text.replace('\\', '\\\\').replace('`', '\\`')
 
 
 class TelegramNotifier:
@@ -40,27 +53,25 @@ class TelegramNotifier:
 
     async def send_ok_heartbeat(self, diagnosis: str, run_count: int) -> None:
         """Send a brief OK ping every N cycles (avoid silent running)."""
-        text = f"🤖 *SmartDevops* ✅\n\n_Ciclo #{run_count}: sistema nominal_\n_{diagnosis[:200]}_"
+        text = f"🤖 *SmartDevops* ✅\n\n_Ciclo \\#{run_count}: sistema nominal_\n_{_esc(diagnosis[:200])}_"
         await self._send_message(text)
 
     async def send_proposal(
         self, severity: str, diagnosis: str, fix_command: str | None
     ) -> None:
         emoji = _SEVERITY_EMOJI.get(severity, "⚠️")
-        # Backticks in diagnosis text break Telegram Markdown parser
-        diagnosis_safe = diagnosis.replace("`", "'")
         lines = [
             f"🤖 *SmartDevops Diagnosis* {emoji}",
             "",
-            f"*Severidad:* {severity.upper()}",
-            f"*Diagnóstico:* {diagnosis_safe}",
+            f"*Severidad:* {_esc(severity.upper())}",
+            f"*Diagnóstico:* {_esc(diagnosis)}",
         ]
 
         if fix_command:
             lines += [
                 "",
                 "*Comando propuesto:*",
-                f"`{fix_command[:400]}`",
+                f"`{_esc_code(fix_command[:400])}`",
                 "",
                 "¿Ejecutar?",
             ]
@@ -72,7 +83,7 @@ class TelegramNotifier:
             })
             await self.store_pending_command(fix_command)
         else:
-            lines += ["", "_No hay fix automático disponible para este problema._"]
+            lines += ["", "_No hay fix automático disponible para este problema\\._"]
             reply_markup = None
 
         await self._send_message("\n".join(lines), reply_markup=reply_markup)
@@ -83,7 +94,7 @@ class TelegramNotifier:
         payload: dict = {
             "chat_id": self._chat_id,
             "text": text,
-            "parse_mode": "Markdown",
+            "parse_mode": "MarkdownV2",
         }
         if reply_markup:
             payload["reply_markup"] = reply_markup
