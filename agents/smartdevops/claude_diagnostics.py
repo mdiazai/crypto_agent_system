@@ -45,6 +45,11 @@ REGLAS DE DIAGNÓSTICO — aplicar en orden:
 6. Logs con ERROR/CRITICAL/Exception repetidos (> 5 en últimas 50 líneas = problema real):
    → severity=warn, fix_command: docker restart del servicio afectado
 
+6b. Error de esquema de base de datos (UndefinedColumnError, UndefinedTableError, column does not exist):
+   → severity=warn, NO proponer docker restart (no resuelve problemas de esquema)
+   → fix_command: timeout 10 docker exec crypto_agent_system-postgres-1 psql -U postgres -d crypto_agent -c 'SELECT column_name FROM information_schema.columns WHERE table_name=TABLE'
+   → diagnosis debe explicar exactamente qué columna falta y en qué tabla, y sugerir revisar el código que genera la query
+
 7. PostgreSQL inaccesible o 0 tokens activos:
    → severity=critical, fix_command: docker restart crypto_agent_system-postgres-1
 
@@ -55,7 +60,7 @@ IMPORTANTE: si detectás un problema de inactividad de agente, siempre proponé
 "verificá los contenedores" ni dejes fix_command=null cuando hay una acción clara.
 
 Respondé SIEMPRE con JSON válido y nada más:
-{"severity":"ok|warn|critical","diagnosis":"descripción concisa en español","fix_command":"comando bash único o null"}
+{"severity":"ok|warn|critical","diagnosis":"descripción concisa en español","fix_command":"comando bash único o null","fix_description":"descripción en español ≤80 chars de qué hace el fix, o null"}
 """.strip()
 
 
@@ -77,6 +82,7 @@ class ClaudeDiagnostics:
                 "severity": "warn",
                 "diagnosis": f"No se pudo obtener diagnóstico de Claude: {e}",
                 "fix_command": None,
+                "fix_description": None,
             }
 
     def _build_prompt(self, snapshot: dict) -> str:
@@ -182,6 +188,7 @@ class ClaudeDiagnostics:
                 "severity": data.get("severity", "warn"),
                 "diagnosis": data.get("diagnosis", text),
                 "fix_command": data.get("fix_command") or None,
+                "fix_description": data.get("fix_description") or None,
             }
         except json.JSONDecodeError:
             return {"severity": "warn", "diagnosis": text, "fix_command": None}
