@@ -2813,6 +2813,67 @@ Schedule (dom 13UTC) → SSH Focus Checkins → SSH Top Scores → SSH Container
 
 **Próxima ejecución:** domingo 2026-06-29 a las 13:00 UTC (10:00 Uruguay)
 
-### Pendientes detectados
-- `N8N_API_KEY` no está en `.env` — hay que agregarla para no extraerla de DB en futuras sesiones
-- Health check semanal para "Code Agent v5-fix-chatid" (pendiente previo, sin cambios)
+### Pendientes detectados (resueltos en la misma sesión)
+- `N8N_API_KEY` agregada a `/opt/crypto_agent_system/.env` via PM Agent `/run` ✅
+- Health check semanal → integrado como sección WORKFLOWS en el propio Weekly Board ✅
+
+---
+
+## Sesión 2026-06-27 (continuación 2) — Weekly Board Agent: iteraciones y prueba end-to-end
+
+### 4. Evolución del workflow (iteraciones post-deploy)
+
+**v2 — Sección WORKFLOWS (health check integrado):**
+Se agregó un nodo `HTTP Workflows` (httpRequest typeVersion 4) entre SSH Tareas y Format Message. Llama a `GET /api/v1/workflows?limit=50` con la N8N_API_KEY en el header. En el Code node, `workflows.map(w => (w.active ? check : warn) + ' ' + w.name)` genera la sección `🔧 WORKFLOWS` con ✅/⚠️ por workflow. Elimina la necesidad de un health check separado.
+
+**v3 — Rename y simplificación:**
+- Nodo renombrado `HTTP Workflows Status` → `HTTP Workflows`
+- Header de sección: dinámico (`🟢/🔴 WORKFLOWS...`) → estático `🔧 WORKFLOWS`
+- Ícono inactivo: 🔴 → ⚠️ (reutiliza la variable `warn` ya definida)
+
+**Workflow final (9 nodos):**
+```
+Schedule (dom 13UTC) → SSH Focus Checkins → SSH Top Scores → SSH Containers
+  → SSH Alertas → SSH Tareas → HTTP Workflows → Format Message → Send Telegram
+```
+
+### 5. Prueba manual end-to-end — 4 ejecuciones hasta success
+
+La API pública de n8n no tiene endpoint para ejecución manual. Se resolvió con login programático:
+```python
+POST /rest/login  # emailOrLdapLoginId + password → session cookie
+POST /rest/workflows/{id}/run  # workflowData + startNodes
+```
+
+**Ejecución 321 — `invalid syntax` en SSH Containers:**
+La solución `={{ 'docker ps --format "{{.Names}}\t..."' }}` no funcionó. N8n escanea `{{ }}` internos aunque estén dentro de una expresión JS envolvente. **Fix:** eliminar el `--format` por completo y usar `awk`:
+```bash
+timeout 8 docker ps | awk 'NR>1 {print "UP " $NF}'
+```
+Sin Go templates, sin conflicto con el parser de n8n.
+
+**Ejecución 324 — Telegram 400 Bad Request:**
+Todos los nodos de datos corrieron correctamente. El nodo Send Telegram (typeVersion 1) devolvía 400. Diagnóstico: comparando con los nodos del PM Agent que funcionan, todos usan **typeVersion 1.2** + `additionalFields: {}`. **Fix:** actualizar typeVersion 1 → 1.2.
+
+**Ejecuciones 326-327 — `SyntaxError: Invalid or unexpected token` en Format Message:**
+La truncación de mensaje introducida via `replace()` en bash contenía un `\n` literal (newline real) dentro de un string JS con comillas dobles — sintaxis inválida en JavaScript. Causa raíz: múltiples capas de escape (bash → Python `-c` → string Python → código JS) donde `\\n` en bash → `\n` en Python (newline real) en vez de `\` + `n`. **Fix:** reescribir el jsCode completo desde archivo Python (`.py`) donde el control de escapes es limpio, usando `list` de líneas unidas con `"\n".join()`.
+
+**Ejecución 328 — `status: success` ✅:**
+Completó en 3 segundos. Reporte entregado a Telegram (chat_id 6517856768).
+
+### 6. Lecciones técnicas n8n
+
+| Problema | Causa | Fix |
+|---|---|---|
+| `{{ }}` Go templates en comando SSH | n8n evalúa `{{ }}` incluso dentro de `={{ '...' }}` | Usar awk/sed en vez de `--format` |
+| Telegram 400 Bad Request | typeVersion 1 del nodo Telegram | typeVersion 1.2 + `additionalFields: {}` |
+| SyntaxError en Code node | `\n` real en string JS con comillas dobles vía bash | Usar archivo `.py` para control de escapes |
+| Emojis corruptos en curl heredoc | Shell strippea bytes multi-byte | Unicode escapes `\uXXXX` en jsCode |
+| `docker compose logs` se cuelga | Conocido en este VPS | `docker inspect` → `tail` directo al JSON |
+| Login a API interna n8n | `emailAddress` rechazado | Campo correcto: `emailOrLdapLoginId` |
+
+### Commits de la sesión
+- `0d1092d` — docs: Weekly Board Agent deployado — bitácora + CLAUDE.md
+- `4a120fe` — docs: Weekly Board Agent v2 — agrega sección WORKFLOWS + health check
+- `ca948f1` — docs: Weekly Board Agent v3 — HTTP Workflows renombrado, jsCode simplificado
+- `097c571` — docs: Weekly Board Agent probado exitosamente — exec 328 success
