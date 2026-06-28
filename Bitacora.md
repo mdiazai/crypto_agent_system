@@ -2985,7 +2985,7 @@ Claude decía "Verifica los contenedores" porque el sistema prompt prohíbe esa 
 ### Deploy
 - `git pull` + `docker compose build discovery smartdevops` (background, `/tmp/build_heartbeat.log`) ✅
 - `docker compose up -d --no-deps discovery smartdevops` ✅
-- Primer run de Discovery escribe `discovery:last_run` → SmartDevops deja de reportar falso positivo en el siguiente ciclo
+- Primer run de Discovery escribe `discovery:last_run` en Redis → SmartDevops deja de reportar falso positivo en el siguiente ciclo ✅
 
 ### Commits
 - `764a99d` — feat: smartdevops — regla 6b DB schema errors + fix_description field
