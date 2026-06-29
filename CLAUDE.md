@@ -54,7 +54,7 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - **PM Agent:** `@ElevenMkeys_PM_Bot` (bot_id `8818804931`)
   - Token: `8818804931:AAGYdiaWTx-rr_M0sMxRUJzN9Gy05bbH9Fc`
   - Webhook: `https://n8n.11mkeys.ai/webhook/20246b71-c0a8-4af5-a406-e93749e29524/webhook`
-  - allowed_updates: `message`
+  - allowed_updates: `message`, `callback_query` (actualizado 2026-06-28)
   - Trigger y respuestas unificados en este bot (cred n8n "11Mkeys PM Bot" id `JGUqhrTxSR2RjdYy`)
   - Credencial duplicada `IyfBxr5585Zirmpv` eliminada 2026-06-13 — queda solo `JGUqhrTxSR2RjdYy`
 
@@ -66,14 +66,17 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - `approve_deploy` — botón inline para aprobar deploy
 - `reject_deploy` — botón inline para rechazar deploy
 
-## PM Agent Bot — Comandos disponibles (actualizado 2026-06-24)
+## PM Agent Bot — Comandos disponibles (actualizado 2026-06-28)
 - `/estado` — resumen de tareas activas (conteo por estado)
 - `/tareas` — lista de tareas en curso
 - `/blockers` — lista de blockers activos
 - `/nueva [descripción]` — crea nueva tarea
 - `/done [id]` — marca tarea como completada
 - `/run [cmd]` — ejecuta comando arbitrario en el VPS (timeout 30s, output truncado a 3800 chars). Comandos bloqueados: `rm -rf`, `docker rm`, `docker rmi`, `git push`, `git reset --hard`
-- Fallback: Send Help (para comandos no reconocidos)
+- **Texto libre técnico** — Claude Classify detecta mensajes técnicos y llama al Task Runner automáticamente
+- `tr_approve` (botón inline) — aprueba y deploya el fix pendiente en Redis
+- `tr_reject` (botón inline) — rechaza y revierte el archivo a su backup `.tr_bak`
+- Fallback: Send Help (para mensajes conversacionales)
 
 Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver bitácora 2026-06-13).
 
@@ -95,7 +98,14 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Code Agent:** Telegram Trigger → Route Command → Ops Router (arquitectura dual switch)
 - **SmartDevops Agent:** Telegram Trigger (callback_query) → Route Command → SSH execute/ignore → Telegram notify
 - **PM Agent:** Telegram Trigger → Parse Input → Route Command → nodos SSH (queries psql) → Fmt → Telegram
-  - id `HlY3gLWuJowyITB9` — comandos `/estado`, `/tareas`, `/blockers`, nueva tarea, marcar done
+  - id `HlY3gLWuJowyITB9` — 48 nodos (2026-06-28)
+  - Comandos: `/estado`, `/tareas`, `/blockers`, `/nueva`, `/done`, `/run`
+  - Callbacks: `tr_approve` (deploy), `tr_reject` (revert)
+  - Fallback: Claude Classify (Haiku) → TECHNICAL → llama Task Runner | CONVERSATIONAL → Send Help
+- **Task Runner:** Webhook → SSH context → Claude generate fix → Apply → Diff → Redis → Telegram buttons
+  - id `2vlG13sLx4bXAY86` — webhook path: `task-runner`, 16 nodos
+  - Redis key `tr:pending` (SETEX 3600) almacena `{file_path, service, rel_path, original_snippet, fixed_snippet, explanation}`
+  - Backup automático: `{file}.tr_bak` antes de aplicar fix
 - **Weekly Board Agent:** Schedule (domingos 13:00 UTC) → 5x SSH queries → HTTP Workflows Status → Format Message → Telegram
   - id `rJzmIz9h7XHDymGB` — report semanal: focus checkins, top 5 tokens, containers, alertas, tareas lab, estado workflows
   - Sección "🔧 WORKFLOWS": llama GET /api/v1/workflows, marca ✅ activo o ⚠️ inactivo por workflow
@@ -152,6 +162,13 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Lecciones n8n Telegram node: usar **typeVersion 1.2** + `additionalFields: {}`; typeVersion 1 da 400 Bad Request
 - `docker ps --format "{{.Names}}"` rompe n8n (Go templates conflictan con expresiones n8n) — usar `docker ps | awk 'NR>1 {print "UP " $NF}'`
 
+## Task Runner — arquitectura (2026-06-28)
+- Webhook POST `task: string, chat_id: int` → SSHGetContext (docker ps + DB count) → SSH Get File (si `file_path` en body) → Build Prompt → Build Claude Body (Code JS + JSON.stringify) → Claude Generate Fix (HTTP string body) → Parse Fix → IF Has Fix → SSH Read File → Apply Fix (Code JS replace) → SSH Backup Write → SSH Gen Diff → Build Redis Payload → SSH Store Redis → Telegram Send Diff
+- Rama false (no fix): Telegram No Fix
+- `specifyBody: "string"` en Claude HTTP node (evita error JSON parsing de n8n con heredocs Python)
+- IF Has Fix: typeVersion 1, `{type:"boolean", operation:"equals"}`, `rightValue: true`
+- Telegramm Send Diff: typeVersion 1.2, PM Bot, inline keyboard `tr_approve`/`tr_reject`
+
 ## Estado del sistema (actualizado 2026-06-28)
 - Monitor: 90 tokens activos, 86 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 67.5 (EUR) al 2026-06-25
@@ -175,6 +192,11 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - Ejecución manual exec 328: `status=success` ✅ — reporte entregado a Telegram
 - **Health check semanal workflows: incluido en Weekly Board ✅** — sección WORKFLOWS con detección de inactivos
 - **N8N_API_KEY: agregada a /opt/crypto_agent_system/.env ✅** (2026-06-27)
+- **Task Runner: deployado y operativo ✅** (2026-06-28) — id `2vlG13sLx4bXAY86`, exec 364 success, 16 nodos
+- **PM Agent Task Runner integration: completa ✅** (2026-06-28)
+  - Componente C: callback_query `tr_approve`/`tr_reject` → deploy/revert chain (exec 365/366 success)
+  - Componente A: Claude Classify (Haiku) en fallback → TECHNICAL llama Task Runner (exec 367 success)
+  - Flujo end-to-end probado: texto libre → TECHNICAL → Task Runner → diff en Telegram → botones
 
 ## Fix scorer aplanado (2026-06-07)
 - **Root cause**: `inflow_threshold_usd=500k` calibrado para large-caps; `inflow_1h_usd=None` hardcodeado; CryptoQuant solo cubre BTC/ETH/etc.

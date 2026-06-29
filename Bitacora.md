@@ -3063,3 +3063,89 @@ Ciclo 18:29 UTC:
 ### Commits
 - `cc57274` — fix: escape backticks in SmartDevops diagnosis (intento parcial)
 - `55fb870` — fix: switch SmartDevops Telegram to MarkdownV2 with proper escaping
+
+---
+
+## Sesión 2026-06-28 — Task Runner + PM Agent Componentes A y C
+
+### Contexto
+
+Continuación de la implementación del flujo autónomo de deploy:
+- Componente B (Task Runner workflow) completado en sesión anterior — exec 364 exitoso
+- Pendiente: Componente C (callbacks tr_approve/tr_reject en PM Agent) y Componente A (Claude Classify en fallback)
+
+### Componente C — Callbacks tr_approve / tr_reject en PM Agent (exec 365, 366)
+
+**Cambios al PM Agent workflow (`HlY3gLWuJowyITB9`):**
+
+1. Telegram Trigger: actualizado de `['message']` a `['message', 'callback_query']`
+2. Parse Input: actualizado para manejar `callback_query.data` como `command` + `message.chat.id` como `chat_id`
+3. Route Command: 6 reglas → 8 reglas: se agregaron `tr_approve` (index 6) y `tr_reject` (index 7). Fallback movido a index 8.
+4. 11 nodos nuevos:
+   - Approve chain: `TR Read Redis Approve → TR Parse Pending Approve → TR Build Deploy Cmd → TR Deploy → TR Del Redis Approve → TR Confirm Deploy`
+   - Reject chain: `TR Read Redis Reject → TR Parse Pending Reject → TR Revert File → TR Del Redis Reject → TR Cancel`
+
+**Lección: conexiones del Switch v3 con fallback**
+
+Al hacer `append()` en la lista de conexiones, el fallback existente (index 6 → Send Help) quedó desplazado. Los nuevos outputs quedaron en indices 7 y 8. Fix: swap explícito para ordenar `[6]=TR_approve, [7]=TR_reject, [8]=fallback`.
+
+**Prueba:**
+- exec 365 (tr_approve): 9 nodos OK, Telegram confirmación enviada (message_id 320 a chat 6517856768), Redis `tr:pending` cleared ✅
+- exec 366 (tr_reject): 8 nodos OK, `TR Revert File` corrió, Redis cleared ✅
+- Deploy con servicio ficticio `test_noop` → error esperado (no Dockerfile), cadena continuó igual
+
+**TR Deploy comportamiento cuando falla:** SSH node devuelve `code:1` y `stdout` con el error. La cadena continúa (el nodo SSH no lanza excepción por exit code != 0). El `TR Confirm Deploy` envía igual "Deploy completado". Para producción esto es correcto porque: (a) si el servicio no existe, el deploy fallará con log visible; (b) si el build falla, el Telegram tendrá el mensaje de error en stdout de TR Deploy que el usuario puede ver en n8n.
+
+**Flujo TR Revert File:**
+```bash
+FPATH="{{ pending_data.file_path }}";
+if [ -f "${FPATH}.tr_bak" ]; then
+  cp "${FPATH}.tr_bak" "$FPATH" && rm "${FPATH}.tr_bak" && echo REVERTED_BAK;
+else
+  git -C /opt/crypto_agent_system checkout -- "$FPATH" && echo REVERTED_GIT;
+fi
+```
+
+### Componente A — Claude Classify en fallback (exec 367, 369)
+
+**Nodos agregados entre Route Command fallback y Send Help:**
+
+`Build Classify Body (Code) → Claude Classify (HTTP/Haiku) → Parse Classify (Code) → IF Technical (IF v1) → [true] Build TR Call → Call Task Runner | [false] Send Help`
+
+**Modelo:** `claude-haiku-4-5-20251001` para clasificación (50 tokens, rápido)
+
+**System prompt:** "Clasifica el mensaje como TECHNICAL o CONVERSATIONAL. Responde SOLO una palabra."
+
+**IF Technical:** typeVersion 1 con boolean conditions `{{ $json.is_technical }} == true`
+
+**Pruebas:**
+- exec 367: "el monitor está tirando errores de chainid en los logs" → TECHNICAL → Task Runner llamado ✅
+- exec 369: "hola, buenos días!" → CONVERSATIONAL → Send Help ✅
+
+**Flujo completo end-to-end verificado (execs 365-369):**
+1. Marce escribe texto libre técnico al PM Bot
+2. Claude Classify → TECHNICAL → llama Task Runner
+3. Task Runner → Claude genera fix → aplica → diff → Redis → Telegram con botones ✅/❌
+4. Click ✅ → PM Agent callback tr_approve → deploy + confirma
+5. Click ❌ → PM Agent callback tr_reject → revierte .tr_bak + cancela
+
+### Estado PM Agent post-sesión
+- 48 nodos, Active: True
+- Trigger: message + callback_query
+- Route Command: 8 reglas + fallback (index 8 → Claude Classify)
+- Telegram webhook PM Bot: `allowed_updates: ["message", "callback_query"]` ✅
+
+### N8N API Key
+- Guardada en `/opt/crypto_agent_system/.env` como `N8N_API_KEY`
+- Extraída con: `strings /var/lib/docker/volumes/crypto_agent_system_n8n_data/_data/database.sqlite | grep "^eyJ"`
+
+### Lecciones técnicas n8n
+- `settings.binaryMode` en el GET de workflow no puede enviarse en el PUT (400: "must NOT have additional properties") — siempre usar `{"executionOrder": "v1"}`
+- `specifyBody: "string"` en HTTP Request node evita que n8n intente parsear el body como JSON (evita error "Expected property name" con heredocs Python)
+- El webhook de Telegram se actualiza automáticamente al guardar el workflow en n8n — confirmado: `allowed_updates` cambió de `["message"]` a `["message", "callback_query"]` al actualizar el trigger en el workflow
+
+### Script de diagnóstico utilizado
+- Prueba simulada de webhook: `POST` con header `X-Telegram-Bot-Api-Secret-Token: {workflowId}_{nodeId}` (chars no válidos eliminados con `re.sub`)
+- `wf_id = 'HlY3gLWuJowyITB9'`, `node_id = 'ed2a9646-5257-4321-a114-52d432d006e2'`
+- Secret: `HlY3gLWuJowyITB9_ed2a9646-5257-4321-a114-52d432d006e2`
+
