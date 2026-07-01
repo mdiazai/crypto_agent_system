@@ -3317,3 +3317,91 @@ Primera versión usaba `stdout.split('\n')` para parsear filas. Problema: el cam
 
 El carácter `$$` de PL/pgSQL se corrompe cuando se pasa inline en un comando SSH entre comillas dobles (el shell lo interpreta como PID del subshell). Solución estándar: escribir el SQL completo a un archivo con heredoc, copiarlo al container con `docker cp`, y ejecutarlo con `psql -f archivo.sql`.
 
+---
+
+## Sesión 2026-07-01 (continuación) — Migración DB crypto_agent → lab_11mkeys
+
+### Contexto
+
+El usuario aprobó ejecutar la migración. La tarea estaba documentada pero pendiente de ejecución. Blocker principal: `docker compose up` falla con `services.deploy additional properties 'resources' not allowed` en esta versión de docker compose.
+
+### Pasos ejecutados
+
+**✅ Pasos 1-4 (sesión anterior):**
+- `CREATE DATABASE lab_11mkeys`
+- `pg_dump crypto_agent > /tmp/crypto_agent_dump.sql` (2787 líneas)
+- Restore: `psql -d lab_11mkeys -f dump.sql` — todos los row counts verificados
+- `.env` actualizado: `DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/lab_11mkeys`, `POSTGRES_DB=lab_11mkeys`
+
+**❌ Blocker — container recreation via `docker compose up`:**
+
+El `docker-compose.yml` tiene dos bloques `deploy:` (uno en un servicio con indent correcto, otro a 0 indent — malformado en n8n service). Ambos causan `services.deploy additional properties 'resources' not allowed` con `docker compose v5.1.3`.
+
+**✅ Workaround — Python strip deploy blocks:**
+
+```python
+# Eliminar todos los bloques deploy: de cualquier indent
+# Escribir a /tmp/compose_nodeploy.yml
+# Usar --project-directory para que .env se lea desde el proyecto
+```
+
+```bash
+docker compose -f /tmp/compose_nodeploy.yml --project-directory /opt/crypto_agent_system \
+  up -d --no-build --no-deps monitor scorer detector orchestrator discovery executor learner
+```
+
+Luego para smartdevops (orphan, no está en el compose):
+```bash
+docker stop crypto_agent_system-smartdevops-1 && docker rm crypto_agent_system-smartdevops-1
+docker run -d --name crypto_agent_system-smartdevops-1 --network crypto_agent_network \
+  --restart unless-stopped --env-file /opt/crypto_agent_system/.env \
+  --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
+  -v /opt/crypto_agent_system/shared:/app/shared:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /opt/crypto_agent_system/agents/smartdevops:/app/agents/smartdevops:ro \
+  crypto_agent_system-smartdevops python -m agents.smartdevops
+```
+
+**❌ Bug secundario — requirements.txt reemplazado:**
+
+Al recrear los containers (scorer, discovery, smartdevops), crasheaban con `ModuleNotFoundError: No module named 'sentry_sdk'` y luego `pydantic_settings`. Causa: el `requirements.txt` había sido reemplazado por una versión mínima (para focus_guardian, commit `1b0efa0`) que solo tenía: asyncpg, apscheduler, anthropic, python-telegram-bot, python-dotenv.
+
+Los containers que llevaban "3 semanas Up" usaban imágenes construidas con el requirements.txt original. Al recrearlos, compose usó las imágenes reconstruidas con el requirements incompleto.
+
+Fix: restaurar requirements.txt desde git:
+```bash
+git -C /opt/crypto_agent_system show c7e3386:requirements.txt > /opt/crypto_agent_system/requirements.txt
+```
+
+Luego rebuild de los 3 servicios afectados con `docker build -f agents/SERVICE/Dockerfile -t ...`.
+
+### Estado final
+
+**8 servicios migrados (todos Up):**
+| Servicio | DB anterior | DB nueva |
+|---|---|---|
+| monitor | crypto_agent | lab_11mkeys ✅ |
+| scorer | crypto_agent | lab_11mkeys ✅ |
+| detector | crypto_agent | lab_11mkeys ✅ |
+| orchestrator | crypto_agent | lab_11mkeys ✅ |
+| discovery | crypto_agent | lab_11mkeys ✅ |
+| smartdevops | crypto_agent | lab_11mkeys ✅ |
+| executor | crypto_agent | lab_11mkeys ✅ |
+| learner | crypto_agent | lab_11mkeys ✅ |
+
+**lab_11mkeys row counts:** token_candidates=1187, lab_memory=6, lab_tasks=11, diagnostics_log=516+, focus_checkins=?, alerts=55+
+
+**Pendiente:** `crypto_agent` DB backup hasta 2026-07-08. DROP solo con aprobación explícita de Marce.
+
+### Lecciones técnicas
+
+1. **docker compose + deploy.resources:** La validación de v5.1.3 rechaza el atributo `deploy.resources`. Workaround: Python script que parsea línea a línea y elimina bloques `deploy:` → temp file.
+
+2. **`--project-directory` en docker compose:** Cuando se usa `-f /ruta/a/compose.yml` en directorio diferente, el `.env` no se carga automáticamente. Fix: `--project-directory /opt/crypto_agent_system` fuerza la lectura del `.env` del proyecto.
+
+3. **env_file vs environment:** `env_file: .env` en el compose es relativo al archivo compose; `environment: - VAR=${VAR}` usa el `.env` del project directory. El workaround usó la segunda forma (que es la que estaba en el compose original).
+
+4. **requirements.txt como único source of truth:** Si hay servicios que se construyen raramente (cada semanas), el requirements.txt puede quedar desfasado respecto a lo que importa el código. El backup de imágenes Docker "en ejecución" puede enmascarar este problema durante semanas.
+
+5. **docker compose orphan containers:** `smartdevops` no aparece en el compose (ni en main ni en override) pero su container tiene el prefijo del proyecto. Fue iniciado manualmente en algún momento y debe recrearse con `docker run` directo.
+

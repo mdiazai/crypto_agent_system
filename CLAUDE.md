@@ -174,7 +174,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Build TG Body: Code node que construye el JSON completo (`chat_id`, `text`, `reply_markup`) y lo pasa como string `tg_body` al HTTP node
 - HTTP node params clave: `specifyBody: "string"`, `contentType: "raw"`, `rawContentType: "application/json"`, header `content-type: application/json` explícito — sin estos params el body llega vacío a Telegram
 
-## Estado del sistema (actualizado 2026-06-28)
+## Estado del sistema (actualizado 2026-07-01)
 - Monitor: 90 tokens activos, 86 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 67.5 (EUR) al 2026-06-25
 - `holder_concentration_pct` activo vía Moralis ✅
@@ -203,18 +203,23 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - Componente A: Claude Classify (Haiku) en fallback → TECHNICAL llama Task Runner (exec 367 success)
   - **Telegram Send Diff con botones inline: CONFIRMADO ✅** (exec 399) — HTTP Request node envía `reply_markup` correctamente, botones ✅/❌ llegan a Telegram
   - **Flujo end-to-end completo probado ✅**: texto libre → TECHNICAL → Task Runner → diff + botones → Aprobar → docker build scorer → deploy confirmado
-- **lab_memory: tabla creada y operativa ✅** (2026-07-01) — PostgreSQL `crypto_agent`, 9 cols, 5 índices, trigger `actualizado_en`
+- **lab_memory: tabla creada y operativa ✅** (2026-07-01) — PostgreSQL `lab_11mkeys`, 9 cols, 5 índices, trigger `actualizado_en`
   - 6 registros iniciales: arquitectura VPS, estado agentes, restricciones técnicas, crypto agent, nodeflow, task runner botones
   - Tipos soportados: `operativa`, `estrategica`, `aprendizaje`, `insight`
 - **PM Agent /memoria: operativo ✅** (2026-07-01) — 4 nodos nuevos (Build Memoria Query → Q Memoria → Fmt Memoria → Send Memoria)
   - Switch actualizado: 9 reglas, índice 8 → `/memoria`
   - Probado end-to-end: `/memoria lab_arquitectura_vps` devuelve registro correcto (exec 405 ✅)
-- **Migración DB crypto_agent → lab_11mkeys: plan documentado** (pendiente aprobación y ejecución)
-  - Plan en 6 pasos: CREATE DB → pg_dump → actualizar .env/compose → rebuild servicios → 7 días convivencia → DROP con aprobación
+- **Migración DB crypto_agent → lab_11mkeys: COMPLETA ✅** (2026-07-01)
+  - `lab_11mkeys` contiene todos los datos (1187 token_candidates, 6 lab_memory, 11 lab_tasks, etc.)
+  - `.env` actualizado: `DATABASE_URL` y `POSTGRES_DB` apuntan a `lab_11mkeys`
+  - 8 servicios migrados: monitor, scorer, detector, orchestrator, discovery, smartdevops, executor, learner
+  - `crypto_agent` DB: mantenida como backup (DROP solo con aprobación explícita, no antes del 2026-07-08)
+  - requirements.txt restaurado desde git (commit `c7e3386`) — estaba reemplazado por versión mínima para lab agents
+  - Workaround `docker compose up`: `python3` strip deploy blocks → `/tmp/compose_nodeploy.yml` + `--project-directory`
 
 ## lab_memory — Memoria centralizada del Lab (2026-07-01)
 
-Tabla en PostgreSQL (`crypto_agent`, schema `public`). Memoria compartida entre todos los agentes.
+Tabla en PostgreSQL (`lab_11mkeys`, schema `public`). Memoria compartida entre todos los agentes.
 
 ```sql
 -- Estructura
@@ -241,9 +246,11 @@ INSERT INTO lab_memory (tipo, agente, clave, valor, proyecto) VALUES ('aprendiza
 
 **Acceso vía PM Bot:** `/memoria [clave]` · `/memoria proyecto [nombre]` · `/memoria hoy`
 
-## Plan migración DB crypto_agent → lab_11mkeys (pendiente aprobación)
-Requiere confirmación explícita paso a paso. Ver detalle en bitácora sesión 2026-07-01.
-Resumen: CREATE lab_11mkeys → pg_dump → actualizar .env + compose → rebuild 4 servicios → 7 días convivencia → DROP con aprobación.
+## Migración DB crypto_agent → lab_11mkeys (completada 2026-07-01)
+- `lab_11mkeys` es la DB activa — todos los servicios apuntan a ella
+- `crypto_agent` sigue existiendo como backup hasta 2026-07-08 (DROP solo con aprobación explícita)
+- Workaround compose: `python3` strip `deploy:` blocks → `/tmp/compose_nodeploy.yml`, luego `docker compose -f ... --project-directory /opt/crypto_agent_system up -d --no-build --no-deps [services]`
+- requirements.txt: usar `git show c7e3386:requirements.txt` para restaurar si se reemplaza accidentalmente
 
 ## Fix scorer aplanado (2026-06-07)
 - **Root cause**: `inflow_threshold_usd=500k` calibrado para large-caps; `inflow_1h_usd=None` hardcodeado; CryptoQuant solo cubre BTC/ETH/etc.
