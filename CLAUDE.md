@@ -162,12 +162,14 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Lecciones n8n Telegram node: usar **typeVersion 1.2** + `additionalFields: {}`; typeVersion 1 da 400 Bad Request
 - `docker ps --format "{{.Names}}"` rompe n8n (Go templates conflictan con expresiones n8n) — usar `docker ps | awk 'NR>1 {print "UP " $NF}'`
 
-## Task Runner — arquitectura (2026-06-28)
-- Webhook POST `task: string, chat_id: int` → SSHGetContext (docker ps + DB count) → SSH Get File (si `file_path` en body) → Build Prompt → Build Claude Body (Code JS + JSON.stringify) → Claude Generate Fix (HTTP string body) → Parse Fix → IF Has Fix → SSH Read File → Apply Fix (Code JS replace) → SSH Backup Write → SSH Gen Diff → Build Redis Payload → SSH Store Redis → Telegram Send Diff
+## Task Runner — arquitectura (actualizado 2026-06-29)
+- Webhook POST `task: string, chat_id: int` → SSHGetContext (docker ps + DB count) → SSH Get File (si `file_path` en body) → Build Prompt → Build Claude Body (Code JS + JSON.stringify) → Claude Generate Fix (HTTP string body) → Parse Fix → IF Has Fix → SSH Read File → Apply Fix (Code JS replace) → SSH Backup Write → SSH Gen Diff → Build Redis Payload → SSH Store Redis → **Build TG Body (Code)** → **Telegram Send Diff (HTTP Request)**
 - Rama false (no fix): Telegram No Fix
 - `specifyBody: "string"` en Claude HTTP node (evita error JSON parsing de n8n con heredocs Python)
-- IF Has Fix: typeVersion 1, `{type:"boolean", operation:"equals"}`, `rightValue: true`
-- Telegramm Send Diff: typeVersion 1.2, PM Bot, inline keyboard `tr_approve`/`tr_reject`
+- IF Has Fix: Switch v3 con `$json.has_fix_str == "yes"` (string comparison, más fiable que boolean)
+- **Telegram Send Diff: HTTP Request node v4** (NOT n8n telegram node) → llama directamente `api.telegram.org/bot.../sendMessage` con `reply_markup.inline_keyboard` en el body JSON — typeVersion 1 del nodo Telegram nativo NO envía `reply_markup` correctamente
+- Build TG Body: Code node que construye el JSON completo (`chat_id`, `text`, `reply_markup`) y lo pasa como string `tg_body` al HTTP node
+- HTTP node params clave: `specifyBody: "string"`, `contentType: "raw"`, `rawContentType: "application/json"`, header `content-type: application/json` explícito — sin estos params el body llega vacío a Telegram
 
 ## Estado del sistema (actualizado 2026-06-28)
 - Monitor: 90 tokens activos, 86 publicados, 0 errores por ciclo
@@ -192,11 +194,12 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - Ejecución manual exec 328: `status=success` ✅ — reporte entregado a Telegram
 - **Health check semanal workflows: incluido en Weekly Board ✅** — sección WORKFLOWS con detección de inactivos
 - **N8N_API_KEY: agregada a /opt/crypto_agent_system/.env ✅** (2026-06-27)
-- **Task Runner: deployado y operativo ✅** (2026-06-28) — id `2vlG13sLx4bXAY86`, exec 364 success, 16 nodos
-- **PM Agent Task Runner integration: completa ✅** (2026-06-28)
+- **Task Runner: deployado y operativo ✅** (2026-06-28) — id `2vlG13sLx4bXAY86`, 17 nodos (Build TG Body + HTTP node)
+- **PM Agent Task Runner integration: completa y end-to-end verificada ✅** (2026-06-29)
   - Componente C: callback_query `tr_approve`/`tr_reject` → deploy/revert chain (exec 365/366 success)
   - Componente A: Claude Classify (Haiku) en fallback → TECHNICAL llama Task Runner (exec 367 success)
-  - Flujo end-to-end probado: texto libre → TECHNICAL → Task Runner → diff en Telegram → botones
+  - **Telegram Send Diff con botones inline: CONFIRMADO ✅** (exec 399) — HTTP Request node envía `reply_markup` correctamente, botones ✅/❌ llegan a Telegram
+  - **Flujo end-to-end completo probado ✅**: texto libre → TECHNICAL → Task Runner → diff + botones → Aprobar → docker build scorer → deploy confirmado
 
 ## Fix scorer aplanado (2026-06-07)
 - **Root cause**: `inflow_threshold_usd=500k` calibrado para large-caps; `inflow_1h_usd=None` hardcodeado; CryptoQuant solo cubre BTC/ETH/etc.

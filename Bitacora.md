@@ -3149,3 +3149,84 @@ fi
 - `wf_id = 'HlY3gLWuJowyITB9'`, `node_id = 'ed2a9646-5257-4321-a114-52d432d006e2'`
 - Secret: `HlY3gLWuJowyITB9_ed2a9646-5257-4321-a114-52d432d006e2`
 
+---
+
+## Sesión 2026-06-29 — Fix botones inline Telegram Send Diff (flujo end-to-end completo)
+
+### Contexto
+
+Continuación directa de la sesión 2026-06-28. El flujo de texto libre → Task Runner → diff funcionaba, pero el mensaje de Telegram llegaba **sin los botones** ✅/❌. El usuario confirma: "llegó pero sin los botones, y lo pongo yo en el telegram y no hace nada".
+
+### Diagnóstico
+
+El nodo `Telegram Send Diff` era un `n8n-nodes-base.telegram` typeVersion 1 con parámetros top-level `replyMarkup: "inlineKeyboard"` e `inlineKeyboard: [[...]]`. La respuesta de la API de Telegram mostraba `reply_markup: None` — el nodo Telegram nativo de n8n (typeVersion 1) **no envía `reply_markup`** a la API aunque los parámetros estén configurados.
+
+### Fix — Reemplazar nodo Telegram por HTTP Request (exec 399)
+
+**Cambio:** `Telegram Send Diff` convertido de `n8n-nodes-base.telegram` v1 a `n8n-nodes-base.httpRequest` v4.
+
+**Nodo nuevo insertado: `Build TG Body` (Code)**
+
+Construye el JSON completo del body Telegram antes del HTTP Request:
+```javascript
+const fix = $('Parse Fix').first().json;
+const diff = ($('SSH Gen Diff').first().json.stdout || '').slice(0, 2800);
+const body = JSON.stringify({
+  chat_id: fix.chat_id || 6517856768,
+  text: ['🔧 TASK RUNNER', '', fix.explanation, '', 'Archivo: ' + fix.file_path, '', diff, '', '¿Aprobar y deployar?'].join('\n'),
+  reply_markup: {
+    inline_keyboard: [[
+      { text: '✅ Aprobar', callback_data: 'tr_approve' },
+      { text: '❌ Rechazar', callback_data: 'tr_reject' }
+    ]]
+  }
+});
+return [{ json: { tg_body: body } }];
+```
+
+**HTTP Request node params (clave):**
+```json
+{
+  "method": "POST",
+  "url": "https://api.telegram.org/bot.../sendMessage",
+  "sendHeaders": true,
+  "headerParameters": {"parameters": [{"name": "content-type", "value": "application/json"}]},
+  "sendBody": true,
+  "specifyBody": "string",
+  "body": "={{ $json.tg_body }}",
+  "contentType": "raw",
+  "rawContentType": "application/json"
+}
+```
+
+**Cadena de conexiones:** `SSH Store Redis → Build TG Body → Telegram Send Diff (HTTP)`
+
+### Error intermedio: `Bad Request: message text is empty`
+
+Primera iteración del HTTP node resultó en 400 de Telegram con "message text is empty". Causa: faltaban `contentType: "raw"` y `rawContentType: "application/json"` — sin estos, n8n no envía `Content-Type: application/json` y Telegram no parsea el body correctamente. Pattern correcto: idéntico al nodo `Claude Generate Fix` (HTTP v4 que sí funciona en el mismo workflow).
+
+### Resultado (exec 399 ✅)
+
+- `Build TG Body`: output correcto con `reply_markup: {"inline_keyboard": [[{"text": "✅ Aprobar", ...}]]}` ✅
+- `Telegram Send Diff (HTTP)`: `ok: true`, `message_id: 338`, `has reply_markup: True` ✅
+- Mensaje Telegram llegó con botones ✅/❌ confirmado por el usuario ✅
+- Click en ✅ Aprobar → PM Agent ejecutó `tr_approve` → docker build scorer → deploy confirmado ✅
+
+### Flujo end-to-end completo verificado
+
+```
+PM Bot (texto libre) → Classify TECHNICAL → Task Runner →
+Claude genera fix → Apply → Diff → Redis → Telegram con botones →
+Aprobar → docker build & restart scorer → Confirmación
+```
+
+### Lección técnica
+
+El nodo nativo de Telegram en n8n (typeVersion 1 y 1.2) **no puede enviar `reply_markup`** con inline keyboards aunque se configuren los parámetros. Para botones inline, usar `n8n-nodes-base.httpRequest` llamando directamente a `api.telegram.org/bot.../sendMessage` con el body JSON construido en un Code node previo. Los params `contentType: "raw"` + `rawContentType: "application/json"` + header explícito `content-type: application/json` son todos necesarios.
+
+### Estado final sesión
+
+- Task Runner: 17 nodos (Build TG Body + HTTP node reemplazando el Telegram nativo)
+- settings.py: revertido a `100_000.0` (valor de producción), scorer rebuildeado
+- Redis: limpio (sin `tr:pending` pendiente)
+
