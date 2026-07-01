@@ -3230,3 +3230,90 @@ El nodo nativo de Telegram en n8n (typeVersion 1 y 1.2) **no puede enviar `reply
 - settings.py: revertido a `100_000.0` (valor de producción), scorer rebuildeado
 - Redis: limpio (sin `tr:pending` pendiente)
 
+---
+
+## Sesión 2026-07-01 — lab_memory + /memoria PM Agent + plan migración DB
+
+### Contexto
+
+Implementación del prompt B1.1 (Lab Memory + migración de base de datos). Tres tareas:
+- Tarea 1: Crear tabla `lab_memory` en PostgreSQL e insertar registros iniciales
+- Tarea 2: Documentar plan de migración `crypto_agent` → `lab_11mkeys` (sin ejecutar)
+- Tarea 3: Agregar comandos `/memoria` al PM Agent
+
+### Tarea 1 — Tabla lab_memory
+
+**Diagnóstico previo:** 10 tablas existentes en `crypto_agent`, `lab_memory` no existía, solo dos bases de datos (`postgres`, `crypto_agent`).
+
+**Tabla creada:**
+```sql
+CREATE TABLE lab_memory (
+  id SERIAL PRIMARY KEY,
+  tipo VARCHAR(20) CHECK (tipo IN ('operativa','estrategica','aprendizaje','insight')),
+  agente VARCHAR(50), clave VARCHAR(100), valor TEXT, proyecto VARCHAR(50),
+  vigente BOOLEAN DEFAULT true, creado_en TIMESTAMP DEFAULT NOW(), actualizado_en TIMESTAMP DEFAULT NOW()
+);
+```
+5 índices: `tipo`, `agente`, `proyecto`, `vigente`, `creado_en DESC`.
+Trigger `lab_memory_updated` para actualizar `actualizado_en` automáticamente.
+
+**Issue técnico:** `$$` del trigger se corrompe en el shell SSH inline. Fix: escribir SQL a `/tmp/create_lab_memory.sql` → `docker cp` → `psql -f`. Mismo patrón para los INSERT.
+
+**6 registros iniciales insertados:**
+| clave | tipo |
+|---|---|
+| `lab_arquitectura_vps` | estrategica |
+| `lab_agentes_estado` | estrategica |
+| `lab_restricciones_tecnicas` | estrategica |
+| `proyecto_crypto_agent_estado` | estrategica |
+| `proyecto_nodeflow_estado` | estrategica |
+| `task_runner_botones_inline` | aprendizaje |
+
+### Tarea 2 — Plan migración DB (documentado, no ejecutado)
+
+**Estado actual:** 11 tablas, filas notables: `token_candidates` 1.187, `diagnostics_log` 516, `alerts` 55.
+
+**Plan en 6 pasos (requiere aprobación explícita paso a paso):**
+1. `CREATE DATABASE lab_11mkeys`
+2. `pg_dump` a archivo primero (evita cuelgue del pipe), luego restore
+3. Actualizar `POSTGRES_DB` en `.env` + `DATABASE_URL` en servicios Python
+4. Rebuild + restart de 4 servicios (monitor, scorer, detector, smartdevops)
+5. Convivencia 7 días — mantener `crypto_agent` como backup
+6. `DROP DATABASE crypto_agent` solo con aprobación explícita de Marce
+
+### Tarea 3 — Comando /memoria en PM Agent
+
+**Nodos agregados (4):**
+- `Build Memoria Query` (Code) — construye SQL dinámico según subcomando
+- `Q Memoria` (SSH) — ejecuta psql en el container Postgres
+- `Fmt Memoria` (Code) — formatea output para Telegram
+- `Send Memoria` (Telegram v1.2, PM Bot)
+
+**Switch actualizado:** 9 reglas, índice 8 → `/memoria`, fallback desplazado a índice 9.
+
+**Subcomandos implementados:**
+```
+/memoria [clave]            → ILIKE '%clave%' AND vigente=true, LIMIT 3
+/memoria proyecto [nombre]  → WHERE proyecto ILIKE '%nombre%', LIMIT 10
+/memoria hoy                → WHERE creado_en > NOW() - INTERVAL '24 hours' (sin LIMIT)
+```
+
+**Fix intermedio — newlines en valor rompen split:**
+
+Primera versión usaba `stdout.split('\n')` para parsear filas. Problema: el campo `valor` contiene saltos de línea, por lo que cada registro se fragmenta en múltiples "filas" y el `split('|||')` falla en las líneas de continuación. Fix: `REPLACE(REPLACE(LEFT(valor, 300), chr(10), ' | '), chr(13), '')` en el SQL aplana los newlines dentro del valor.
+
+**Pruebas end-to-end (execs 404–408):**
+| exec | comando | args | resultado |
+|---|---|---|---|
+| 404 | `/memoria` | `''` | 3 registros recientes (args vacío = búsqueda sin filtro) |
+| 405 | `/memoria lab_arquitectura_vps` | `'lab_arquitectura_vps'` | 1 registro, ok ✅ |
+| 406 | `/memoria` sin "hoy" | `''` | usuario envió solo `/memoria` |
+| 407 | `/memoria hoy` | `'hoy'` | 6 registros del día, ok ✅ |
+| 408 | `/memoria proyecto nodeflow` | `'proyecto nodeflow'` | 1 registro nodeflow, ok ✅ |
+
+**Estado final:** PM Agent 52 nodos, activo. Los tres subcomandos operativos y confirmados por el usuario.
+
+### Lección técnica
+
+El carácter `$$` de PL/pgSQL se corrompe cuando se pasa inline en un comando SSH entre comillas dobles (el shell lo interpreta como PID del subshell). Solución estándar: escribir el SQL completo a un archivo con heredoc, copiarlo al container con `docker cp`, y ejecutarlo con `psql -f archivo.sql`.
+
