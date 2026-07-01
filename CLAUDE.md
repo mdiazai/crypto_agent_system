@@ -66,13 +66,16 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - `approve_deploy` — botón inline para aprobar deploy
 - `reject_deploy` — botón inline para rechazar deploy
 
-## PM Agent Bot — Comandos disponibles (actualizado 2026-06-28)
+## PM Agent Bot — Comandos disponibles (actualizado 2026-07-01)
 - `/estado` — resumen de tareas activas (conteo por estado)
 - `/tareas` — lista de tareas en curso
 - `/blockers` — lista de blockers activos
 - `/nueva [descripción]` — crea nueva tarea
 - `/done [id]` — marca tarea como completada
 - `/run [cmd]` — ejecuta comando arbitrario en el VPS (timeout 30s, output truncado a 3800 chars). Comandos bloqueados: `rm -rf`, `docker rm`, `docker rmi`, `git push`, `git reset --hard`
+- `/memoria [clave]` — busca registros en `lab_memory` por clave (ej: `/memoria lab_arquitectura_vps`)
+- `/memoria proyecto [nombre]` — todo lo de un proyecto (ej: `/memoria proyecto crypto_agent`)
+- `/memoria hoy` — registros creados en las últimas 24 horas
 - **Texto libre técnico** — Claude Classify detecta mensajes técnicos y llama al Task Runner automáticamente
 - `tr_approve` (botón inline) — aprueba y deploya el fix pendiente en Redis
 - `tr_reject` (botón inline) — rechaza y revierte el archivo a su backup `.tr_bak`
@@ -98,8 +101,8 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Code Agent:** Telegram Trigger → Route Command → Ops Router (arquitectura dual switch)
 - **SmartDevops Agent:** Telegram Trigger (callback_query) → Route Command → SSH execute/ignore → Telegram notify
 - **PM Agent:** Telegram Trigger → Parse Input → Route Command → nodos SSH (queries psql) → Fmt → Telegram
-  - id `HlY3gLWuJowyITB9` — 48 nodos (2026-06-28)
-  - Comandos: `/estado`, `/tareas`, `/blockers`, `/nueva`, `/done`, `/run`
+  - id `HlY3gLWuJowyITB9` — 52 nodos (2026-07-01)
+  - Comandos: `/estado`, `/tareas`, `/blockers`, `/nueva`, `/done`, `/run`, `/memoria`
   - Callbacks: `tr_approve` (deploy), `tr_reject` (revert)
   - Fallback: Claude Classify (Haiku) → TECHNICAL → llama Task Runner | CONVERSATIONAL → Send Help
 - **Task Runner:** Webhook → SSH context → Claude generate fix → Apply → Diff → Redis → Telegram buttons
@@ -200,6 +203,47 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - Componente A: Claude Classify (Haiku) en fallback → TECHNICAL llama Task Runner (exec 367 success)
   - **Telegram Send Diff con botones inline: CONFIRMADO ✅** (exec 399) — HTTP Request node envía `reply_markup` correctamente, botones ✅/❌ llegan a Telegram
   - **Flujo end-to-end completo probado ✅**: texto libre → TECHNICAL → Task Runner → diff + botones → Aprobar → docker build scorer → deploy confirmado
+- **lab_memory: tabla creada y operativa ✅** (2026-07-01) — PostgreSQL `crypto_agent`, 9 cols, 5 índices, trigger `actualizado_en`
+  - 6 registros iniciales: arquitectura VPS, estado agentes, restricciones técnicas, crypto agent, nodeflow, task runner botones
+  - Tipos soportados: `operativa`, `estrategica`, `aprendizaje`, `insight`
+- **PM Agent /memoria: operativo ✅** (2026-07-01) — 4 nodos nuevos (Build Memoria Query → Q Memoria → Fmt Memoria → Send Memoria)
+  - Switch actualizado: 9 reglas, índice 8 → `/memoria`
+  - Probado end-to-end: `/memoria lab_arquitectura_vps` devuelve registro correcto (exec 405 ✅)
+- **Migración DB crypto_agent → lab_11mkeys: plan documentado** (pendiente aprobación y ejecución)
+  - Plan en 6 pasos: CREATE DB → pg_dump → actualizar .env/compose → rebuild servicios → 7 días convivencia → DROP con aprobación
+
+## lab_memory — Memoria centralizada del Lab (2026-07-01)
+
+Tabla en PostgreSQL (`crypto_agent`, schema `public`). Memoria compartida entre todos los agentes.
+
+```sql
+-- Estructura
+CREATE TABLE lab_memory (
+  id SERIAL PRIMARY KEY, tipo VARCHAR(20) CHECK (tipo IN ('operativa','estrategica','aprendizaje','insight')),
+  agente VARCHAR(50), clave VARCHAR(100), valor TEXT, proyecto VARCHAR(50),
+  vigente BOOLEAN DEFAULT true, creado_en TIMESTAMP DEFAULT NOW(), actualizado_en TIMESTAMP DEFAULT NOW()
+);
+```
+
+**Consultas frecuentes:**
+```sql
+-- Por clave
+SELECT tipo, agente, clave, valor, proyecto, actualizado_en FROM lab_memory WHERE clave ILIKE '%clave%' AND vigente=true;
+-- Por proyecto
+SELECT tipo, clave, valor FROM lab_memory WHERE proyecto='crypto_agent' AND vigente=true;
+-- Hoy
+SELECT tipo, clave, LEFT(valor,200), creado_en FROM lab_memory WHERE creado_en > NOW()-INTERVAL '24 hours';
+-- Insertar
+INSERT INTO lab_memory (tipo, agente, clave, valor, proyecto) VALUES ('aprendizaje','system','clave','valor',null);
+```
+
+**Registros iniciales (claves):** `lab_arquitectura_vps`, `lab_agentes_estado`, `lab_restricciones_tecnicas`, `proyecto_crypto_agent_estado`, `proyecto_nodeflow_estado`, `task_runner_botones_inline`
+
+**Acceso vía PM Bot:** `/memoria [clave]` · `/memoria proyecto [nombre]` · `/memoria hoy`
+
+## Plan migración DB crypto_agent → lab_11mkeys (pendiente aprobación)
+Requiere confirmación explícita paso a paso. Ver detalle en bitácora sesión 2026-07-01.
+Resumen: CREATE lab_11mkeys → pg_dump → actualizar .env + compose → rebuild 4 servicios → 7 días convivencia → DROP con aprobación.
 
 ## Fix scorer aplanado (2026-06-07)
 - **Root cause**: `inflow_threshold_usd=500k` calibrado para large-caps; `inflow_1h_usd=None` hardcodeado; CryptoQuant solo cubre BTC/ETH/etc.
