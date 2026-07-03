@@ -3405,3 +3405,63 @@ Luego rebuild de los 3 servicios afectados con `docker build -f agents/SERVICE/D
 
 5. **docker compose orphan containers:** `smartdevops` no aparece en el compose (ni en main ni en override) pero su container tiene el prefijo del proyecto. Fue iniciado manualmente en algún momento y debe recrearse con `docker run` directo.
 
+---
+
+## Sesión 2026-07-03 — Strategy Advisor end-to-end + fix webhook 403
+
+### Contexto
+
+Continuación de la sesión anterior. El Strategy Advisor había sido deployado via API de n8n pero los mensajes de Telegram al bot `@ElevenMkeys_Advisor_bot` no llegaban al workflow (0 ejecuciones). El usuario reportó que comandos 2, 3, 4 no funcionaron y que no veía el flujo en la UI de n8n.
+
+### Diagnóstico
+
+`getWebhookInfo` para el bot advisor:
+```json
+{
+  "url": "https://n8n.11mkeys.ai/webhook/6d8966df-6977-4670-a051-b87a08b09fd9/webhook",
+  "pending_update_count": 4,
+  "last_error_message": "Wrong response from the webhook: 403 Forbidden"
+}
+```
+
+4 mensajes pendientes que Telegram no podía entregar.
+
+**Root cause:** n8n registra automáticamente un secret token con Telegram cuando activa un workflow con Telegram Trigger. Al llamar `setWebhook` manualmente en la sesión anterior (para corregir el formato de URL), se sobreescribió el registro de Telegram sin incluir el secret token interno de n8n. Resultado: Telegram enviaba mensajes sin el header `X-Telegram-Bot-Api-Secret-Token` esperado → n8n respondía 403.
+
+### Fix aplicado
+
+```bash
+# Desactivar WF1
+POST /api/v1/workflows/7Ohb4fekhWkgfMVE/deactivate  → active: false
+sleep 3
+# Reactivar — n8n llama setWebhook automáticamente con su secret
+POST /api/v1/workflows/7Ohb4fekhWkgfMVE/activate   → active: true
+```
+
+Después de reactivar: `getWebhookInfo` → pending: 0, last_error: none.
+
+### Resultado
+
+Los 4 mensajes queued se procesaron inmediatamente — todos success:
+
+| Exec | Mensaje | Nodo final | Status |
+|------|---------|-----------|--------|
+| 422 | `/start` | Send Advisor | success ✅ |
+| 423 | `/estado` | Send Estado | success ✅ |
+| 424 | `/hola que tal` | Send Advisor | success ✅ |
+| 425 | `/evaluar [consulta nodos cripto]` | Send Evaluar | success ✅ |
+
+El usuario confirmó: "sí, llegaron las 4 respuestas".
+
+### Estado final del Strategy Advisor
+
+- **WF1** `7Ohb4fekhWkgfMVE` — Telegram trigger, 27 nodos, activo ✅
+- **WF2** `mDjJw4IIFJhnZq1j` — `/advisor-notify` webhook, 6 nodos ✅
+- **WF3** `mB0dJy17gxM4V3FN` — `/advisor-report` webhook, 5 nodos ✅
+
+### Lección técnica
+
+**n8n Telegram trigger y webhooks manuales no son compatibles.** n8n gestiona el ciclo de vida completo del webhook Telegram: al activar llama `setWebhook` con URL + secret_token propio; al desactivar llama `deleteWebhook`. Cualquier llamada manual a `setWebhook` rompe este mecanismo.
+
+Regla: para registrar/corregir un webhook de un Telegram trigger en n8n, siempre desactivar + reactivar el workflow. Nunca llamar `setWebhook` directamente.
+

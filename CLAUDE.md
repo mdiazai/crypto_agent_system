@@ -224,12 +224,14 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **PM Agent /memoria: operativo ✅** (2026-07-01) — 4 nodos nuevos (Build Memoria Query → Q Memoria → Fmt Memoria → Send Memoria)
   - Switch actualizado: 9 reglas, índice 8 → `/memoria`
   - Probado end-to-end: `/memoria lab_arquitectura_vps` devuelve registro correcto (exec 405 ✅)
-- **Strategy Advisor: deployado y operativo ✅** (2026-07-02)
+- **Strategy Advisor: deployado y operativo ✅** (2026-07-03)
   - 3 workflows: `7Ohb4fekhWkgfMVE` (Telegram), `mDjJw4IIFJhnZq1j` (notify), `mB0dJy17gxM4V3FN` (report)
   - Bot `@ElevenMkeys_Advisor_bot` (token `ADVISOR_BOT_TOKEN` en .env), cred n8n `OnOkrq5xaWWl9e9j`
   - Webhook: `https://n8n.11mkeys.ai/webhook/6d8966df-6977-4670-a051-b87a08b09fd9/webhook`
   - `/advisor-notify` probado: responde `approved` con Claude + notifica Marce ✅
   - `/advisor-report` probado: escribe en lab_memory + responde JSON ✅
+  - `/evaluar`, `/estado`, texto libre: confirmados end-to-end en Telegram ✅ (execs 422-425)
+  - **LECCIÓN webhook n8n:** nunca llamar `setWebhook` manualmente en un bot controlado por n8n — n8n registra su propio secret token al activar; override manual causa 403 en todos los mensajes. Fix: desactivar + reactivar workflow.
 - **Migración DB crypto_agent → lab_11mkeys: COMPLETA ✅** (2026-07-01)
   - `lab_11mkeys` contiene todos los datos (1187 token_candidates, 6 lab_memory, 11 lab_tasks, etc.)
   - `.env` actualizado: `DATABASE_URL` y `POSTGRES_DB` apuntan a `lab_11mkeys`
