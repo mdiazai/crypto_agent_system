@@ -52,6 +52,10 @@ completo de 5 pasos con los workflows JSON listos para importar.
   - Webhook: `https://n8n.11mkeys.ai/webhook/4e2d5c25-11ce-476c-85c7-d45f847f168c/webhook`
   - allowed_updates: `callback_query`
 - **PM Agent:** `@ElevenMkeys_PM_Bot` (bot_id `8818804931`)
+- **Strategy Advisor:** `@ElevenMkeys_Advisor_bot` (bot_id `8911950382`)
+  - Token: `ADVISOR_BOT_TOKEN` en `.env`
+  - Webhook: `https://n8n.11mkeys.ai/webhook/6d8966df-6977-4670-a051-b87a08b09fd9/webhook`
+  - allowed_updates: `message`
   - Token: `8818804931:AAGYdiaWTx-rr_M0sMxRUJzN9Gy05bbH9Fc`
   - Webhook: `https://n8n.11mkeys.ai/webhook/20246b71-c0a8-4af5-a406-e93749e29524/webhook`
   - allowed_updates: `message`, `callback_query` (actualizado 2026-06-28)
@@ -113,6 +117,17 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - id `rJzmIz9h7XHDymGB` — report semanal: focus checkins, top 5 tokens, containers, alertas, tareas lab, estado workflows
   - Sección "🔧 WORKFLOWS": llama GET /api/v1/workflows, marca ✅ activo o ⚠️ inactivo por workflow
   - Entrega: chat_id 6517856768 via @ElevenMkeys_PM_Bot (cred JGUqhrTxSR2RjdYy)
+- **Strategy Advisor:** Telegram Trigger → Parse Input → Route Command → [6 branches] → Claude/SSH/Telegram
+  - id `7Ohb4fekhWkgfMVE` — 27 nodos (2026-07-02)
+  - Bot: `@ElevenMkeys_Advisor_bot` (cred `OnOkrq5xaWWl9e9j`)
+  - Comandos: `/estado`, `/evaluar`, `/proyectos`, `/principios`, `/memoria`, texto libre → Claude Advisor Brain
+  - Lee y escribe en `lab_memory` (tipo `estrategica`)
+- **Advisor Notify:** Webhook POST `/advisor-notify` → Claude evaluate → Telegram notify Marce → Respond
+  - id `mDjJw4IIFJhnZq1j` — 6 nodos
+  - Respuesta: `{status: approved/pending_marce, mensaje, id_colaboracion}`
+- **Advisor Report:** Webhook POST `/advisor-report` → SSH write lab_memory → Telegram notify → Respond
+  - id `mB0dJy17gxM4V3FN` — 5 nodos
+  - Escribe tipo `operativa` en lab_memory + notifica a Marce via PM Bot
 
 ## PM Agent — nodos SSH (2026-06-13)
 - El nodo `n8n-nodes-base.executeCommand` **no existe** en esta versión de n8n → migrado a `n8n-nodes-base.ssh`
@@ -209,6 +224,12 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **PM Agent /memoria: operativo ✅** (2026-07-01) — 4 nodos nuevos (Build Memoria Query → Q Memoria → Fmt Memoria → Send Memoria)
   - Switch actualizado: 9 reglas, índice 8 → `/memoria`
   - Probado end-to-end: `/memoria lab_arquitectura_vps` devuelve registro correcto (exec 405 ✅)
+- **Strategy Advisor: deployado y operativo ✅** (2026-07-02)
+  - 3 workflows: `7Ohb4fekhWkgfMVE` (Telegram), `mDjJw4IIFJhnZq1j` (notify), `mB0dJy17gxM4V3FN` (report)
+  - Bot `@ElevenMkeys_Advisor_bot` (token `ADVISOR_BOT_TOKEN` en .env), cred n8n `OnOkrq5xaWWl9e9j`
+  - Webhook: `https://n8n.11mkeys.ai/webhook/6d8966df-6977-4670-a051-b87a08b09fd9/webhook`
+  - `/advisor-notify` probado: responde `approved` con Claude + notifica Marce ✅
+  - `/advisor-report` probado: escribe en lab_memory + responde JSON ✅
 - **Migración DB crypto_agent → lab_11mkeys: COMPLETA ✅** (2026-07-01)
   - `lab_11mkeys` contiene todos los datos (1187 token_candidates, 6 lab_memory, 11 lab_tasks, etc.)
   - `.env` actualizado: `DATABASE_URL` y `POSTGRES_DB` apuntan a `lab_11mkeys`
