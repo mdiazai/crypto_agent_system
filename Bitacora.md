@@ -3465,3 +3465,57 @@ El usuario confirmó: "sí, llegaron las 4 respuestas".
 
 Regla: para registrar/corregir un webhook de un Telegram trigger en n8n, siempre desactivar + reactivar el workflow. Nunca llamar `setWebhook` directamente.
 
+---
+
+## Sesión 2026-07-03 — Monkey Brain Agent (B1.3)
+
+### Contexto
+
+Implementación de B1.3 — Monkey Brain: extensión digital de la mente creativa de Marce.
+Bot `@ElevenMkeys_MonkeyBrain_bot` (token `8228343063:...`, `MONKEY_BRAIN_BOT_TOKEN` en .env).
+
+### Arquitectura implementada
+
+Workflow `uBR0ICIj2ZtLUCvk` — 48 nodos. Tres flujos principales:
+
+**[0] New Insight:**
+Telegram Trigger → Parse Input → Get MB State (Redis) → Route → Send Ack Immediate → Build Q Body → Claude Questions → Parse Questions → Build Store Cmd → Store State (Redis SETEX 3600) → Send Questions
+
+**[1] Answers:**
+Parse State → Search Similar (psql SELECT lab_memory) → Build Research Body → Claude Research (web_search_20250305) → Parse Research → Build SQL → SSH Write Memory → Build Clear Cmd → Clear State → Send Findings → IF Project Potential → Build Advisor Body → Advisor Notify
+
+**[2] Commands:**
+Commands Switch → /insights (SSH → Fmt → Send) | /insight [clave] | /conectar (SSH → Claude → Send) | /pendientes | fallback help
+
+**Scheduler 48h:**
+Schedule 48h → SSH Pending Insights → Build Sched Body → IF Has Pending → Claude Sched Research → Parse Sched → IF Significant → Notify Proactive
+
+### Patrón de estado conversacional (Redis)
+
+El flujo multi-turno (enviar 3 preguntas y esperar respuesta) se implementa con Redis:
+- Key: `mb:state:{chat_id}` con SETEX 3600
+- Valor: `{"phase":"WAITING_ANSWERS","insight":"...","questions":"..."}`
+- Al recibir mensaje: GET state. Si `WAITING_ANSWERS` → rama answers. Si null → rama new_insight.
+- Al completar answers: DEL state.
+
+### Bug encontrado y fix
+
+**Error 400 en creación del workflow:**
+```
+connections.Commands Switch.main[2][0].node: Connection target "SSH Conectar" does not reference an existing node
+```
+Causa: `node_ssh_conectar` estaba declarado pero no incluido en `all_nodes`. La conexión `Commands Switch → SSH Conectar` existía pero el nodo no.
+Fix: agregar `node_ssh_conectar` a `all_nodes`.
+
+### Estado final
+
+- Workflow activo: `uBR0ICIj2ZtLUCvk` (48 nodos)
+- Credential n8n: `BPdMxyZ1zYqCfYTx` (Monkey Brain Bot)
+- Webhook Telegram: `https://n8n.11mkeys.ai/webhook/c4685dee-8100-4743-90d7-4f53ad819556/webhook`
+- pending: 0, last_error: ninguno
+- Pendiente: prueba end-to-end desde Telegram
+
+### Lección técnica
+
+Al construir workflows con Python: verificar que TODOS los nodos referenciados en `connections` estén presentes en `all_nodes`. n8n valida la consistencia del grafo al crear el workflow y devuelve 400 con descripción del nodo faltante — la cual indica exactamente cuál nodo falta.
+

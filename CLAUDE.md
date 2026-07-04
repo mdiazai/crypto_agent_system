@@ -55,6 +55,9 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - **Strategy Advisor:** `@ElevenMkeys_Advisor_bot` (bot_id `8911950382`)
   - Token: `ADVISOR_BOT_TOKEN` en `.env`
   - Webhook: `https://n8n.11mkeys.ai/webhook/6d8966df-6977-4670-a051-b87a08b09fd9/webhook`
+- **Monkey Brain:** `@ElevenMkeys_MonkeyBrain_bot` (bot_id `8228343063`)
+  - Token: `MONKEY_BRAIN_BOT_TOKEN` en `.env`
+  - Webhook: `https://n8n.11mkeys.ai/webhook/c4685dee-8100-4743-90d7-4f53ad819556/webhook`
   - allowed_updates: `message`
   - Token: `8818804931:AAGYdiaWTx-rr_M0sMxRUJzN9Gy05bbH9Fc`
   - Webhook: `https://n8n.11mkeys.ai/webhook/20246b71-c0a8-4af5-a406-e93749e29524/webhook`
@@ -128,6 +131,14 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Advisor Report:** Webhook POST `/advisor-report` → SSH write lab_memory → Telegram notify → Respond
   - id `mB0dJy17gxM4V3FN` — 5 nodos
   - Escribe tipo `operativa` en lab_memory + notifica a Marce via PM Bot
+- **Monkey Brain:** Telegram Trigger → Parse Input → Get MB State (Redis) → Route [3 salidas]
+  - id `uBR0ICIj2ZtLUCvk` — 48 nodos (2026-07-03)
+  - Bot: `@ElevenMkeys_MonkeyBrain_bot` (cred `BPdMxyZ1zYqCfYTx`)
+  - [0] New Insight → ack inmediato → Claude genera 3 preguntas dinámicas → Store Redis (TTL 1h)
+  - [1] Answers → Parse Redis state → Search lab_memory → Claude Research (web_search tool) → SSH Write insight → Telegram hallazgos → IF project potential → /advisor-notify
+  - [2] Commands → /insights, /insight [clave], /conectar [tema], /pendientes, fallback help
+  - Schedule 48h → SSH pending insights → Claude investiga → IF conexión significativa → Telegram notifica
+  - Redis key `mb:state:{chat_id}` (SETEX 3600) para estado conversacional multi-turno
 
 ## PM Agent — nodos SSH (2026-06-13)
 - El nodo `n8n-nodes-base.executeCommand` **no existe** en esta versión de n8n → migrado a `n8n-nodes-base.ssh`
@@ -189,7 +200,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Build TG Body: Code node que construye el JSON completo (`chat_id`, `text`, `reply_markup`) y lo pasa como string `tg_body` al HTTP node
 - HTTP node params clave: `specifyBody: "string"`, `contentType: "raw"`, `rawContentType: "application/json"`, header `content-type: application/json` explícito — sin estos params el body llega vacío a Telegram
 
-## Estado del sistema (actualizado 2026-07-01)
+## Estado del sistema (actualizado 2026-07-03)
 - Monitor: 90 tokens activos, 86 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 67.5 (EUR) al 2026-06-25
 - `holder_concentration_pct` activo vía Moralis ✅
@@ -224,6 +235,12 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **PM Agent /memoria: operativo ✅** (2026-07-01) — 4 nodos nuevos (Build Memoria Query → Q Memoria → Fmt Memoria → Send Memoria)
   - Switch actualizado: 9 reglas, índice 8 → `/memoria`
   - Probado end-to-end: `/memoria lab_arquitectura_vps` devuelve registro correcto (exec 405 ✅)
+- **Monkey Brain: deployado y activo ✅** (2026-07-03) — id `uBR0ICIj2ZtLUCvk`, 48 nodos, webhook OK
+  - Flujo multi-turno con Redis state machine (`mb:state:{chat_id}`, SETEX 3600)
+  - Claude Research con `web_search_20250305` tool + `anthropic-beta: web-search-2025-03-05`
+  - Scheduler 48h para investigación proactiva de insights pendientes
+  - Integración Strategy Advisor via `/advisor-notify` cuando detecta potencial de proyecto
+  - Pendiente prueba end-to-end desde Telegram
 - **Strategy Advisor: deployado y operativo ✅** (2026-07-03)
   - 3 workflows: `7Ohb4fekhWkgfMVE` (Telegram), `mDjJw4IIFJhnZq1j` (notify), `mB0dJy17gxM4V3FN` (report)
   - Bot `@ElevenMkeys_Advisor_bot` (token `ADVISOR_BOT_TOKEN` en .env), cred n8n `OnOkrq5xaWWl9e9j`
