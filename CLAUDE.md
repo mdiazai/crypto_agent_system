@@ -255,7 +255,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - Fix 1: `ALERT_THRESHOLD` 55 → 65 en `.env`
   - Fix 2: Executor skips tokens sin `chain`/`contract_address` (no on-chain validation)
   - Fix 3: `price_stability_signal` < 0.3% change → 5 pts (antes 20 pts) — penaliza stablecoins/forex
-  - Executor: detenido (**no reiniciar hasta validar que los scores de tokens legítimos > 65**)
+  - Executor: **reiniciado ✅** — circuit breaker expira automáticamente ~2026-07-05 02:49 UTC
 - **B2 Evaluación e integración de proyectos: COMPLETA ✅** (2026-07-04)
   - 4 registros en lab_memory: `b2_evaluacion_crypto_agent`, `b2_evaluacion_estrategia_b`, `b2_evaluacion_depin`, `b2_evaluacion_nodeflow`
   - Crypto Agent: integrado, bloqueante = trades vacíos
