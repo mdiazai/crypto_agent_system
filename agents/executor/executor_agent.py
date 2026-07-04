@@ -18,7 +18,7 @@ from sqlalchemy import update
 from sqlalchemy import select
 
 from shared.config import settings
-from shared.models import Alert, Trade, TradeDirection, EntryQuality, get_session
+from shared.models import Alert, Trade, TradeDirection, EntryQuality, TokenCandidate, get_session
 from shared.redis_bus import bus, Channel
 from agents.detector.schemas import ScoredToken
 
@@ -111,6 +111,15 @@ class ExecutorAgent:
                 capital_disponible=round(capital_disponible, 2),
                 capital_minimo=round(capital_minimo, 2),
             )
+            return
+
+        # Verificar validación on-chain: tokens sin chain/contract no son ejecutables
+        async with get_session() as session:
+            tc = (await session.execute(
+                select(TokenCandidate).where(TokenCandidate.symbol == scored.symbol).limit(1)
+            )).scalar_one_or_none()
+        if tc is None or not tc.chain:
+            log.info("executor_agent.no_chain_skip", symbol=scored.symbol)
             return
 
         # Abrir en MEXC y Bitget en paralelo

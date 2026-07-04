@@ -103,12 +103,16 @@ def _supplemental_signal(snapshot: TokenSnapshot) -> float:
 # ── Señal 3: Estabilidad de precio ───────────────────────────────────────────
 
 def _price_stability_signal(change_24h: float | None) -> float:
-    """Máx 20 pts. Precio estable = acumulación silenciosa."""
+    """Máx 20 pts. Precio estable = acumulación silenciosa.
+    Tokens con variación < 0.3% se penalizan (probable stablecoin/forex).
+    Sweet spot: 0.3-1% — algo de movimiento pero no excesivo."""
     if change_24h is None:
         return 10.0  # neutral sin datos
     abs_change = abs(change_24h)
+    if abs_change < 0.3:
+        return 5.0   # probable stablecoin o forex-pegged — no pump candidato
     if abs_change <= 1.0:
-        return 20.0
+        return 20.0  # acumulación silenciosa ideal
     if abs_change <= 3.0:
         return 17.0
     if abs_change <= 7.0:
