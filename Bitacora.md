@@ -3519,3 +3519,51 @@ Fix: agregar `node_ssh_conectar` a `all_nodes`.
 
 Al construir workflows con Python: verificar que TODOS los nodos referenciados en `connections` estén presentes en `all_nodes`. n8n valida la consistencia del grafo al crear el workflow y devuelve 400 con descripción del nodo faltante — la cual indica exactamente cuál nodo falta.
 
+---
+
+## Sesión 2026-07-04 — B2 Evaluación e integración de proyectos
+
+### Contexto
+
+Continuación de la sesión 2026-07-03. Monkey Brain operativo (3 bugs corregidos: 400 en creación, chat_id vacío, respuesta vacía). Diagnóstico previo completado para los 4 proyectos del lab.
+
+### Diagnóstico (hallazgos clave)
+
+**Crypto Agent:** 8 containers Up. Bug Discovery: `RuntimeWarning: coroutine 'DiscoveryAgent.run' was never awaited` (asyncio — container reiniciado hace 25h). El bug anterior (`UndefinedColumnError created_at`) ya no existe. Sin tabla `trades` ni `learner_runs` → el Learner nunca completó un ciclo.
+
+**Estrategia B:** Solo planning. Sin lab_memory, sin código en VPS.
+
+**DePIN:** Solo planning. Sin lab_memory, sin archivos en VPS.
+
+**NodeFlow:** MVP `.jsx` en máquina local de Marce. No está en el VPS. Sin backend.
+
+### Evaluación contra 7 principios
+
+| Proyecto | P1 90d | P2 | P3 | P4 MVP | P5 | P6 | P7 | Veredicto |
+|---|---|---|---|---|---|---|---|---|
+| Crypto Agent | ⚠️ | ✅ | ✅ | ⚠️ | ✅ | ✅ | ✅ | Integrado con ajustes |
+| Estrategia B | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ | ⚠️ | Integrado con ajustes menores |
+| DePIN | ⚠️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | Requiere decisión ($5k + VPS) |
+| NodeFlow | ⚠️ | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ✅ | Requiere decisión (validación) |
+
+### Escritura en lab_memory
+
+4 INSERTs ejecutados via Python script en VPS:
+- `b2_evaluacion_crypto_agent` (tipo: operativa, proyecto: crypto_agent)
+- `b2_evaluacion_estrategia_b` (tipo: estrategica, proyecto: estrategia_b)
+- `b2_evaluacion_depin` (tipo: estrategica, proyecto: depin)
+- `b2_evaluacion_nodeflow` (tipo: estrategica, proyecto: nodeflow)
+
+4 reportes enviados a Telegram (chat_id 6517856768 via PM Bot).
+
+### Decisiones pendientes (para Marce)
+
+1. **Crypto Agent:** ¿Diagnosticar por qué no hay trades en DB?
+2. **Estrategia B:** Criterio exacto para retiro trimestral del 20%
+3. **DePIN:** ¿Confirmar $5k disponibles? ¿Primer nodo: Storj?
+4. **NodeFlow:** ¿Identificar 5 usuarios de validación? ¿Diferenciador LATAM?
+
+### Fix CLAUDE.md
+
+Sección "Bots Telegram" tenía PM Agent token/webhook incorrectamente colocados bajo Monkey Brain. Corregido en este commit.
+

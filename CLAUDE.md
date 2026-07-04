@@ -52,6 +52,11 @@ completo de 5 pasos con los workflows JSON listos para importar.
   - Webhook: `https://n8n.11mkeys.ai/webhook/4e2d5c25-11ce-476c-85c7-d45f847f168c/webhook`
   - allowed_updates: `callback_query`
 - **PM Agent:** `@ElevenMkeys_PM_Bot` (bot_id `8818804931`)
+  - Token: `8818804931:AAGYdiaWTx-rr_M0sMxRUJzN9Gy05bbH9Fc`
+  - Webhook: `https://n8n.11mkeys.ai/webhook/20246b71-c0a8-4af5-a406-e93749e29524/webhook`
+  - allowed_updates: `message`, `callback_query` (actualizado 2026-06-28)
+  - Trigger y respuestas unificados en este bot (cred n8n "11Mkeys PM Bot" id `JGUqhrTxSR2RjdYy`)
+  - Credencial duplicada `IyfBxr5585Zirmpv` eliminada 2026-06-13 — queda solo `JGUqhrTxSR2RjdYy`
 - **Strategy Advisor:** `@ElevenMkeys_Advisor_bot` (bot_id `8911950382`)
   - Token: `ADVISOR_BOT_TOKEN` en `.env`
   - Webhook: `https://n8n.11mkeys.ai/webhook/6d8966df-6977-4670-a051-b87a08b09fd9/webhook`
@@ -59,11 +64,6 @@ completo de 5 pasos con los workflows JSON listos para importar.
   - Token: `MONKEY_BRAIN_BOT_TOKEN` en `.env`
   - Webhook: `https://n8n.11mkeys.ai/webhook/c4685dee-8100-4743-90d7-4f53ad819556/webhook`
   - allowed_updates: `message`
-  - Token: `8818804931:AAGYdiaWTx-rr_M0sMxRUJzN9Gy05bbH9Fc`
-  - Webhook: `https://n8n.11mkeys.ai/webhook/20246b71-c0a8-4af5-a406-e93749e29524/webhook`
-  - allowed_updates: `message`, `callback_query` (actualizado 2026-06-28)
-  - Trigger y respuestas unificados en este bot (cred n8n "11Mkeys PM Bot" id `JGUqhrTxSR2RjdYy`)
-  - Credencial duplicada `IyfBxr5585Zirmpv` eliminada 2026-06-13 — queda solo `JGUqhrTxSR2RjdYy`
 
 ## Code Agent Bot — Comandos disponibles
 - `/fix_etherscan` — aplica fix Etherscan V2 con aprobación manual
@@ -202,7 +202,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Build TG Body: Code node que construye el JSON completo (`chat_id`, `text`, `reply_markup`) y lo pasa como string `tg_body` al HTTP node
 - HTTP node params clave: `specifyBody: "string"`, `contentType: "raw"`, `rawContentType: "application/json"`, header `content-type: application/json` explícito — sin estos params el body llega vacío a Telegram
 
-## Estado del sistema (actualizado 2026-07-03)
+## Estado del sistema (actualizado 2026-07-04)
 - Monitor: 90 tokens activos, 86 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 67.5 (EUR) al 2026-06-25
 - `holder_concentration_pct` activo vía Moralis ✅
@@ -251,6 +251,13 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - `/advisor-report` probado: escribe en lab_memory + responde JSON ✅
   - `/evaluar`, `/estado`, texto libre: confirmados end-to-end en Telegram ✅ (execs 422-425)
   - **LECCIÓN webhook n8n:** nunca llamar `setWebhook` manualmente en un bot controlado por n8n — n8n registra su propio secret token al activar; override manual causa 403 en todos los mensajes. Fix: desactivar + reactivar workflow.
+- **B2 Evaluación e integración de proyectos: COMPLETA ✅** (2026-07-04)
+  - 4 registros en lab_memory: `b2_evaluacion_crypto_agent`, `b2_evaluacion_estrategia_b`, `b2_evaluacion_depin`, `b2_evaluacion_nodeflow`
+  - Crypto Agent: integrado, bloqueante = trades vacíos
+  - Estrategia B: integrada, pendiente = criterio retiro trimestral
+  - DePIN: requiere decisión ($5k + recursos VPS)
+  - NodeFlow: bloqueante = validación con 5 usuarios no iniciada
+  - 4 reportes enviados a Telegram via PM Bot
 - **Migración DB crypto_agent → lab_11mkeys: COMPLETA ✅** (2026-07-01)
   - `lab_11mkeys` contiene todos los datos (1187 token_candidates, 6 lab_memory, 11 lab_tasks, etc.)
   - `.env` actualizado: `DATABASE_URL` y `POSTGRES_DB` apuntan a `lab_11mkeys`
@@ -284,7 +291,7 @@ SELECT tipo, clave, LEFT(valor,200), creado_en FROM lab_memory WHERE creado_en >
 INSERT INTO lab_memory (tipo, agente, clave, valor, proyecto) VALUES ('aprendizaje','system','clave','valor',null);
 ```
 
-**Registros iniciales (claves):** `lab_arquitectura_vps`, `lab_agentes_estado`, `lab_restricciones_tecnicas`, `proyecto_crypto_agent_estado`, `proyecto_nodeflow_estado`, `task_runner_botones_inline`
+**Registros (claves):** `lab_arquitectura_vps`, `lab_agentes_estado`, `lab_restricciones_tecnicas`, `proyecto_crypto_agent_estado`, `proyecto_nodeflow_estado`, `task_runner_botones_inline`, `b2_evaluacion_crypto_agent`, `b2_evaluacion_estrategia_b`, `b2_evaluacion_depin`, `b2_evaluacion_nodeflow`
 
 **Acceso vía PM Bot:** `/memoria [clave]` · `/memoria proyecto [nombre]` · `/memoria hoy`
 
