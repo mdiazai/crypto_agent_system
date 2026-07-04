@@ -73,7 +73,7 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - `approve_deploy` — botón inline para aprobar deploy
 - `reject_deploy` — botón inline para rechazar deploy
 
-## PM Agent Bot — Comandos disponibles (actualizado 2026-07-01)
+## PM Agent Bot — Comandos disponibles (actualizado 2026-07-04)
 - `/estado` — resumen de tareas activas (conteo por estado)
 - `/tareas` — lista de tareas en curso
 - `/blockers` — lista de blockers activos
@@ -83,6 +83,8 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - `/memoria [clave]` — busca registros en `lab_memory` por clave (ej: `/memoria lab_arquitectura_vps`)
 - `/memoria proyecto [nombre]` — todo lo de un proyecto (ej: `/memoria proyecto crypto_agent`)
 - `/memoria hoy` — registros creados en las últimas 24 horas
+- `/ingreso [proyecto] [monto] [descripcion]` — registra ingreso en lab_memory. Proyectos válidos: `crypto_agent`, `estrategia_b`, `depin`, `nodeflow`
+- `/finanzas` — dashboard mensual: ingresos reales vs metas por proyecto + % camino a $10K/mes
 - **Texto libre técnico** — Claude Classify detecta mensajes técnicos y llama al Task Runner automáticamente
 - `tr_approve` (botón inline) — aprueba y deploya el fix pendiente en Redis
 - `tr_reject` (botón inline) — rechaza y revierte el archivo a su backup `.tr_bak`
@@ -108,18 +110,25 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Code Agent:** Telegram Trigger → Route Command → Ops Router (arquitectura dual switch)
 - **SmartDevops Agent:** Telegram Trigger (callback_query) → Route Command → SSH execute/ignore → Telegram notify
 - **PM Agent:** Telegram Trigger → Parse Input → Route Command → nodos SSH (queries psql) → Fmt → Telegram
-  - id `HlY3gLWuJowyITB9` — 52 nodos (2026-07-01)
-  - Comandos: `/estado`, `/tareas`, `/blockers`, `/nueva`, `/done`, `/run`, `/memoria`
+  - id `HlY3gLWuJowyITB9` — 61 nodos (2026-07-04)
+  - Comandos: `/estado`, `/tareas`, `/blockers`, `/nueva`, `/done`, `/run`, `/memoria`, `/ingreso`, `/finanzas`
   - Callbacks: `tr_approve` (deploy), `tr_reject` (revert)
   - Fallback: Claude Classify (Haiku) → TECHNICAL → llama Task Runner | CONVERSATIONAL → Send Help
+  - `/ingreso`: Switch[9] → Parse Ingreso → IF Valid → SSH INSERT lab_memory → Fmt OK → Send OK / Send Error
+  - `/finanzas`: Switch[10] → Q Finanzas (SSH) → Fmt Finanzas (metas hardcoded) → Send Finanzas
 - **Task Runner:** Webhook → SSH context → Claude generate fix → Apply → Diff → Redis → Telegram buttons
   - id `2vlG13sLx4bXAY86` — webhook path: `task-runner`, 16 nodos
   - Redis key `tr:pending` (SETEX 3600) almacena `{file_path, service, rel_path, original_snippet, fixed_snippet, explanation}`
   - Backup automático: `{file}.tr_bak` antes de aplicar fix
-- **Weekly Board Agent:** Schedule (domingos 13:00 UTC) → 5x SSH queries → HTTP Workflows Status → Format Message → Telegram
-  - id `rJzmIz9h7XHDymGB` — report semanal: focus checkins, top 5 tokens, containers, alertas, tareas lab, estado workflows
+- **Weekly Board Agent:** Schedule (domingos 13:00 UTC) → 5x SSH queries → SSH Finance → HTTP Workflows Status → Format Message → Telegram
+  - id `rJzmIz9h7XHDymGB` — 10 nodos (2026-07-04) — report semanal: focus checkins, top 5 tokens, containers, alertas, tareas lab, finanzas mes, estado workflows
+  - Sección "💰 FINANZAS MES": query ingresos del mes en lab_memory, metas por proyecto
   - Sección "🔧 WORKFLOWS": llama GET /api/v1/workflows, marca ✅ activo o ⚠️ inactivo por workflow
   - Entrega: chat_id 6517856768 via @ElevenMkeys_PM_Bot (cred JGUqhrTxSR2RjdYy)
+- **Finance Alerts:** Schedule (lunes 09:00 UTC) → SSH Finance Status → Check Alerts → IF Has Alerts → Send Alert
+  - id `0DcLexkKVceomM1z` — 5 nodos, activo (2026-07-04)
+  - Alertas: proyecto <50% meta en día 15+, sin ingresos este mes, último ingreso >14 días
+  - Entrega via @ElevenMkeys_PM_Bot (cred JGUqhrTxSR2RjdYy)
 - **Strategy Advisor:** Telegram Trigger → Parse Input → Route Command → [6 branches] → Claude/SSH/Telegram
   - id `7Ohb4fekhWkgfMVE` — 27 nodos (2026-07-02)
   - Bot: `@ElevenMkeys_Advisor_bot` (cred `OnOkrq5xaWWl9e9j`)
@@ -202,6 +211,13 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Build TG Body: Code node que construye el JSON completo (`chat_id`, `text`, `reply_markup`) y lo pasa como string `tg_body` al HTTP node
 - HTTP node params clave: `specifyBody: "string"`, `contentType: "raw"`, `rawContentType: "application/json"`, header `content-type: application/json` explícito — sin estos params el body llega vacío a Telegram
 
+## Finance Agent — metas (B3.1)
+- Metas mensuales hardcodeadas: `crypto_agent=$500`, `estrategia_b=$200`, `depin=$120`, `nodeflow=$0` (pre-revenue)
+- Total meta: $820/mes → camino a $10K/mes
+- Ingresos almacenados en `lab_memory`: tipo=`operativa`, agente=`finance_agent`, clave=`ingreso_{proyecto}_{fecha}_{ts}`, valor=JSON `{proyecto, monto, descripcion, fecha}`
+- Query finanzas: `WHERE tipo='operativa' AND agente='finance_agent' AND clave LIKE 'ingreso_%' AND creado_en > date_trunc('month', NOW())`
+- B3.2 Soberanía tecnológica: tarea para Monkey Brain (NO Claude Code) — Marce activa manualmente
+
 ## Estado del sistema (actualizado 2026-07-04)
 - Monitor: 90 tokens activos, 86 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 67.5 (EUR) al 2026-06-25
@@ -256,6 +272,13 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - Fix 2: Executor skips tokens sin `chain`/`contract_address` (no on-chain validation)
   - Fix 3: `price_stability_signal` < 0.3% change → 5 pts (antes 20 pts) — penaliza stablecoins/forex
   - Executor: **reiniciado ✅** — circuit breaker expira automáticamente ~2026-07-05 02:49 UTC
+- **B3.1 Finance Agent: deployado y operativo ✅** (2026-07-04)
+  - PM Agent: `/ingreso` (Switch[9]) y `/finanzas` (Switch[10]) — 52 → 61 nodos
+  - Finance Alerts scheduler: id `0DcLexkKVceomM1z`, lunes 09:00 UTC, activo
+  - Weekly Board: SSH Finance + sección 💰 FINANZAS MES — 9 → 10 nodos
+  - Datos: JSON en lab_memory, tipo=operativa, agente=finance_agent, clave=ingreso_{proyecto}_{fecha}_{ts}
+  - Metas: crypto_agent $500, estrategia_b $200, depin $120, nodeflow $0
+- **B3.2 Soberanía tecnológica: PENDIENTE** — Marce activa Monkey Brain manualmente (NO Claude Code)
 - **B2 Evaluación e integración de proyectos: COMPLETA ✅** (2026-07-04)
   - 4 registros en lab_memory: `b2_evaluacion_crypto_agent`, `b2_evaluacion_estrategia_b`, `b2_evaluacion_depin`, `b2_evaluacion_nodeflow`
   - Crypto Agent: integrado, bloqueante = trades vacíos

@@ -3625,3 +3625,46 @@ Con los 3 fixes, RCLOI/ROPRA/RFLHY/RBTGO pasarían de ~67 pts a ~47 pts:
 - `ALERT_THRESHOLD`: +10 pts extra de margen (ahora threshold = 65)
 - Resultado: 47 pts < 65 pts → no generan alertas
 
+---
+
+## Sesión 2026-07-04 — B3.1 Finance Agent
+
+### Componentes construidos
+
+**B3.1 — Finance Agent (4 componentes, todos deployados en una sesión)**
+
+**Component 1+2: PM Agent `/ingreso` y `/finanzas`**
+- PM Agent: 52 → 61 nodos, Switch con 9 → 11 reglas
+- `/ingreso [proyecto] [monto] [descripcion]`:
+  - Switch[9] → Parse Ingreso (Code) → IF Valid → SSH INSERT lab_memory → Fmt OK → Send
+  - Error path: Send Ingreso Error
+  - Valor almacenado como JSON: `{proyecto, monto, descripcion, fecha}`
+  - Clave: `ingreso_{proyecto}_{fecha}_{ts}`
+- `/finanzas`:
+  - Switch[10] → Q Finanzas (SSH) → Fmt Finanzas (Code con metas hardcodeadas) → Send
+  - Metas: crypto_agent $500, estrategia_b $200, depin $120, nodeflow $0
+  - Formato: 🟢🟡🔴 por proyecto + % camino a $10K/mes
+
+**Component 3: Finance Alerts scheduler**
+- Nuevo workflow `11Mkeys Finance Alerts`, id `0DcLexkKVceomM1z`, 5 nodos, activo
+- Lunes 09:00 UTC: SSH Finance Status → Check Alerts (Code) → IF Has Alerts → Send Alert
+- Alertas: <50% meta en día 15+, sin ingresos este mes, último ingreso >14 días
+
+**Component 4: Weekly Board sección finanzas**
+- `rJzmIz9h7XHDymGB`: 9 → 10 nodos
+- SSH Finance insertado en chain: SSH Tareas → SSH Finance → HTTP Workflows
+- Format Message actualizado con sección `💰 FINANZAS MES`
+
+### Lección técnica — n8n API creación de workflows
+
+- `POST /api/v1/workflows` rechaza `active` (400: read-only)
+- Activar por separado: `POST /api/v1/workflows/{id}/activate`
+
+### Estado post-construcción
+
+- `/ingreso` y `/finanzas`: disponibles en @ElevenMkeys_PM_Bot
+- Finance Alerts: activo, dispara lunes 09:00 UTC
+- Weekly Board: incluye sección finanzas
+- B3.2 (Soberanía tecnológica): Marce activa Monkey Brain manualmente, NO Claude Code
+
+
