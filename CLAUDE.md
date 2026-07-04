@@ -131,14 +131,16 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Advisor Report:** Webhook POST `/advisor-report` → SSH write lab_memory → Telegram notify → Respond
   - id `mB0dJy17gxM4V3FN` — 5 nodos
   - Escribe tipo `operativa` en lab_memory + notifica a Marce via PM Bot
-- **Monkey Brain:** Telegram Trigger → Parse Input → Get MB State (Redis) → Route [3 salidas]
-  - id `uBR0ICIj2ZtLUCvk` — 48 nodos (2026-07-03)
+- **Monkey Brain:** Telegram Trigger → Parse Input → Get MB State (Redis) → Consolidate Data → Route [3 salidas]
+  - id `uBR0ICIj2ZtLUCvk` — 49 nodos (2026-07-04)
   - Bot: `@ElevenMkeys_MonkeyBrain_bot` (cred `BPdMxyZ1zYqCfYTx`)
   - [0] New Insight → ack inmediato → Claude genera 3 preguntas dinámicas → Store Redis (TTL 1h)
   - [1] Answers → Parse Redis state → Search lab_memory → Claude Research (web_search tool) → SSH Write insight → Telegram hallazgos → IF project potential → /advisor-notify
   - [2] Commands → /insights, /insight [clave], /conectar [tema], /pendientes, fallback help
   - Schedule 48h → SSH pending insights → Claude investiga → IF conexión significativa → Telegram notifica
   - Redis key `mb:state:{chat_id}` (SETEX 3600) para estado conversacional multi-turno
+  - **Nodo Consolidate Data (Code):** fusiona Parse Input + Get MB State antes del Route — necesario porque SSH output solo tiene `{stdout,stderr}` y downstream necesita `chat_id`, `command`, `state`
+  - **Parse Research:** concatena TODOS los bloques text de Claude (con web_search la respuesta llega fragmentada en 20-30 bloques) — NO usar solo el último bloque
 
 ## PM Agent — nodos SSH (2026-06-13)
 - El nodo `n8n-nodes-base.executeCommand` **no existe** en esta versión de n8n → migrado a `n8n-nodes-base.ssh`
@@ -235,12 +237,12 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **PM Agent /memoria: operativo ✅** (2026-07-01) — 4 nodos nuevos (Build Memoria Query → Q Memoria → Fmt Memoria → Send Memoria)
   - Switch actualizado: 9 reglas, índice 8 → `/memoria`
   - Probado end-to-end: `/memoria lab_arquitectura_vps` devuelve registro correcto (exec 405 ✅)
-- **Monkey Brain: deployado y activo ✅** (2026-07-03) — id `uBR0ICIj2ZtLUCvk`, 48 nodos, webhook OK
+- **Monkey Brain: deployado y operativo ✅** (2026-07-04) — id `uBR0ICIj2ZtLUCvk`, 49 nodos
   - Flujo multi-turno con Redis state machine (`mb:state:{chat_id}`, SETEX 3600)
   - Claude Research con `web_search_20250305` tool + `anthropic-beta: web-search-2025-03-05`
   - Scheduler 48h para investigación proactiva de insights pendientes
   - Integración Strategy Advisor via `/advisor-notify` cuando detecta potencial de proyecto
-  - Pendiente prueba end-to-end desde Telegram
+  - **End-to-end confirmado ✅** (exec 435): idea → 3 preguntas → respuestas → web search → hallazgos → lab_memory → Advisor notificado
 - **Strategy Advisor: deployado y operativo ✅** (2026-07-03)
   - 3 workflows: `7Ohb4fekhWkgfMVE` (Telegram), `mDjJw4IIFJhnZq1j` (notify), `mB0dJy17gxM4V3FN` (report)
   - Bot `@ElevenMkeys_Advisor_bot` (token `ADVISOR_BOT_TOKEN` en .env), cred n8n `OnOkrq5xaWWl9e9j`
