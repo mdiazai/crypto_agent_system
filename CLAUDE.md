@@ -251,6 +251,11 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - `/advisor-report` probado: escribe en lab_memory + responde JSON ✅
   - `/evaluar`, `/estado`, texto libre: confirmados end-to-end en Telegram ✅ (execs 422-425)
   - **LECCIÓN webhook n8n:** nunca llamar `setWebhook` manualmente en un bot controlado por n8n — n8n registra su propio secret token al activar; override manual causa 403 en todos los mensajes. Fix: desactivar + reactivar workflow.
+- **Fixes scoring anti-stablecoin: deployados ✅** (2026-07-04) — commits `97627be` (EUR exclusion), `1301062` (Fix 2+3)
+  - Fix 1: `ALERT_THRESHOLD` 55 → 65 en `.env`
+  - Fix 2: Executor skips tokens sin `chain`/`contract_address` (no on-chain validation)
+  - Fix 3: `price_stability_signal` < 0.3% change → 5 pts (antes 20 pts) — penaliza stablecoins/forex
+  - Executor: detenido (**no reiniciar hasta validar que los scores de tokens legítimos > 65**)
 - **B2 Evaluación e integración de proyectos: COMPLETA ✅** (2026-07-04)
   - 4 registros en lab_memory: `b2_evaluacion_crypto_agent`, `b2_evaluacion_estrategia_b`, `b2_evaluacion_depin`, `b2_evaluacion_nodeflow`
   - Crypto Agent: integrado, bloqueante = trades vacíos

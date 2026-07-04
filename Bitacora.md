@@ -3567,3 +3567,61 @@ Continuación de la sesión 2026-07-03. Monkey Brain operativo (3 bugs corregido
 
 Sección "Bots Telegram" tenía PM Agent token/webhook incorrectamente colocados bajo Monkey Brain. Corregido en este commit.
 
+---
+
+## Sesión 2026-07-04 — Diagnóstico trades + fixes scoring anti-stablecoin
+
+### Contexto
+
+Diagnóstico de por qué no había trades nuevos en el Crypto Agent System.
+
+### Hallazgos del diagnóstico
+
+**Causa inmediata (circuit breaker):**
+- 8 trades en DB, todos con PnL negativo (`entry_quality: bad`)
+- `MAX_CONSECUTIVE_LOSSES=3` → circuit breaker activo desde 2026-07-04 02:49 UTC
+- Redis key `executor:circuit_breaker` con TTL 24h, expira automáticamente
+
+**Causa raíz (scoring falso):**
+- `ALERT_THRESHOLD=55` (no 70 como documentado)
+- Los tokens problemáticos (RCLOI/ROPRA/RFLHY/RBTGO/EUR) alcanzaban 60-67 pts gracias a:
+  - `_price_stability_signal`: tokens estables (<0.3% variación diaria) siempre scores **20 pts** — inadvertidamente premiaba stablecoins
+  - `lp_funding`: puntos neutrales (7.5 pts) por datos faltantes
+  - `cl_inflow`: proxy `volume/24` → cualquier token con volumen alto scores alto
+- Ninguno de los 4 tokens tiene `chain` ni `contract_address` — no son verificables on-chain
+- `holder_concentration_pct: null` para todos → Moralis no puede trackearlos
+
+### Fixes aplicados
+
+**Fix 1 (solo .env):** `ALERT_THRESHOLD` 55 → 65
+- Commit: n/a (solo .env en VPS)
+- Restart: detector
+
+**Fix 2 (executor_agent.py):** gate on-chain
+- Antes de abrir posición: query a `token_candidates` por `chain`
+- Si `chain IS NULL` → skip con log `executor_agent.no_chain_skip`
+- Commit: `1301062`
+
+**Fix 3 (pattern_long_pump.py):** penalizar stablecoins
+- `price_change_24h < 0.3%` → 5 pts (antes 20 pts)
+- Sweet spot: 0.3-1% → 20 pts (acumulación silenciosa legítima)
+- Commit: `1301062`
+
+**Exclusión EUR (scorer_agent.py):**
+- `"EUR", "GBP", "JPY", "CHF", "CAD", "AUD"` → EXCLUDED_SYMBOLS
+- Commit: `97627be`
+
+### Estado post-fixes
+
+- Detector: Up (con Fix 1 + Fix 3)
+- Scorer: Up (con exclusión forex)
+- Executor: **DETENIDO** — no reiniciar hasta validar que tokens legítimos alcanzan >65 pts
+- Circuit breaker: expira automáticamente 2026-07-05 ~02:49 UTC
+
+### Impacto esperado en scores
+
+Con los 3 fixes, RCLOI/ROPRA/RFLHY/RBTGO pasarían de ~67 pts a ~47 pts:
+- `_price_stability_signal`: -15 pts (5 en vez de 20)
+- `ALERT_THRESHOLD`: +10 pts extra de margen (ahora threshold = 65)
+- Resultado: 47 pts < 65 pts → no generan alertas
+
