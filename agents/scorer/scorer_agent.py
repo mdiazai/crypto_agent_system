@@ -29,6 +29,8 @@ EXCLUDED_SYMBOLS: set[str] = {
     "WBTC", "STETH", "WETH", "CBBTC", "WBNB",
     "USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USDD", "USDP",
     "GUSD", "FRAX", "USD1",
+    # Forex-pegged tokens (se comportan como stablecoins, no generan pumps)
+    "EUR", "GBP", "JPY", "CHF", "CAD", "AUD",
     # Privacy coins large-cap
     "ZEC", "DASH", "XMR",
 }
