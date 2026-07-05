@@ -223,7 +223,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Query finanzas: `WHERE tipo='operativa' AND agente='finance_agent' AND clave LIKE 'ingreso_%' AND creado_en > date_trunc('month', NOW())`
 - B3.2 Soberanía tecnológica: tarea para Monkey Brain (NO Claude Code) — Marce activa manualmente
 
-## Estado del sistema (actualizado 2026-07-04)
+## Estado del sistema (actualizado 2026-07-05)
 - Monitor: 90 tokens activos, 86 publicados, 0 errores por ciclo
 - `detection_score` diferenciado ✅ — score máximo 67.5 (EUR) al 2026-06-25
 - `holder_concentration_pct` activo vía Moralis ✅
@@ -235,11 +235,12 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - Falso positivo "discovery inactivo" eliminado — usa Redis TTL `discovery:last_run` ✅
   - Telegram migrado a MarkdownV2 con `_esc()`/`_esc_code()` — entrega confirmada ✅ (commit `55fb870`)
   - `fix_description` field en respuesta Claude + regla 6b (schema DB) ✅
+  - **Alerta "discovery inactivo": RESUELTA ✅** (2026-07-05) — ver discovery heartbeat fix
 - **PM Agent: reconstruido y operativo ✅** (2026-06-13)
   - `/run [cmd]` operativo con blacklist: `rm -rf`, `docker rm`, `docker rmi`, `git push`, `git reset --hard`
 - **Focus Guardian: deployado y operativo ✅** (2026-06-25)
   - Container `focus_guardian` en `crypto_agent_network`, bot `@ElevenMkeys_Focus_bot`
-- **Discovery heartbeat fix: deployado ✅** (2026-07-05) — APScheduler 3.x + Python 3.11 bug; `discovery:last_run` TTL=100795 verificado post-deploy
+- **Discovery heartbeat fix: deployado ✅** (2026-07-05) — APScheduler 3.x + Python 3.11 bug; cron diario no awaitaba `run()`; fix: `_scheduled_run()` wrapper síncrono con `create_task`; commit `6bffa7d`; `discovery:last_run` TTL=100795 verificado
 - **Orchestrator: estable ✅**
 - **Claude Code CLI: instalado en VPS** — v2.1.168, auth via `ANTHROPIC_API_KEY` en `~/.bashrc`
 - Umbral de alerta (70 pts): no alcanzado — requiere token con volumen > $3M diario
@@ -282,7 +283,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - Fix 1: `ALERT_THRESHOLD` 55 → 65 en `.env`
   - Fix 2: Executor skips tokens sin `chain`/`contract_address` (no on-chain validation)
   - Fix 3: `price_stability_signal` < 0.3% change → 5 pts (antes 20 pts) — penaliza stablecoins/forex
-  - Executor: **reiniciado ✅** — circuit breaker expira automáticamente ~2026-07-05 02:49 UTC
+  - Executor: **reiniciado ✅** — circuit breaker expiró ~2026-07-05 02:49 UTC
 - **B3.1 Finance Agent: deployado y operativo ✅** (2026-07-04)
   - PM Agent: `/ingreso` (Switch[9]) y `/finanzas` (Switch[10]) — 52 → 61 nodos
   - Finance Alerts scheduler: id `0DcLexkKVceomM1z`, lunes 09:00 UTC, activo
@@ -302,7 +303,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - `lab_11mkeys` contiene todos los datos (1187 token_candidates, 6 lab_memory, 11 lab_tasks, etc.)
   - `.env` actualizado: `DATABASE_URL` y `POSTGRES_DB` apuntan a `lab_11mkeys`
   - 8 servicios migrados: monitor, scorer, detector, orchestrator, discovery, smartdevops, executor, learner
-  - `crypto_agent` DB: mantenida como backup (DROP solo con aprobación explícita, no antes del 2026-07-08)
+  - `crypto_agent` DB: mantenida como backup (DROP solo con aprobación explícita — deadline original 2026-07-08, pendiente decisión)
   - requirements.txt restaurado desde git (commit `c7e3386`) — estaba reemplazado por versión mínima para lab agents
   - Workaround `docker compose up`: `python3` strip deploy blocks → `/tmp/compose_nodeploy.yml` + `--project-directory`
 
