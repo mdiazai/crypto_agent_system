@@ -3703,4 +3703,53 @@ Las reglas originales [0]-[8] tienen:
 - `/ingreso crypto_agent 10 test` → ✅ solo el mensaje de éxito, sin Task Runner espurio
 - End-to-end confirmado por Marce (exec 471)
 
+---
+
+## Sesión 2026-07-05 — B4 Strategy Advisor: diagnóstico autónomo + escalado Task Runner
+
+### Tarea 1+2 — Fix PM Agent: crypto_agent → lab_11mkeys
+
+**Root cause de `/memoria hoy` vacío:** `Build Memoria Query` usaba `-d crypto_agent`. La tabla `lab_memory` solo existe en `lab_11mkeys`.
+
+**Fix:** un solo PUT al PM Agent cambió `-d crypto_agent` → `-d lab_11mkeys` en 6 nodos:
+- `Build Memoria Query`, `Q Estado`, `Q Tareas`, `Q Blockers`, `Insert Task`, `Update Done`
+
+Los nodos de tareas funcionaban porque `lab_tasks` existe en ambas DBs (migración 2026-07-01 copió los datos). Si se hubiera dropeado `crypto_agent` el 2026-07-08, todos habrían roto.
+
+### Tarea 3 — Strategy Advisor: diagnóstico autónomo + escalado
+
+**Flujo texto libre anterior:**
+```
+Route Command [5] → SSH Ctx Advisor → Build Advisor Body → Claude Advisor → Parse Advisor Resp → Send Advisor
+```
+
+**Flujo nuevo (27 → 32 nodos):**
+```
+Route Command [5] → SSH System State (NUEVO)
+  → SSH Ctx Advisor
+  → Build Advisor Body (MODIFICADO: agrega system state + instrucción clasificación)
+  → Claude Advisor
+  → Parse Advisor Resp (MODIFICADO: extrae JSON type/confidence/task_spec)
+  → IF Needs Fix (NUEVO)
+      [true]  → Telegram Escalate → Build Task Spec → HTTP Task Runner
+      [false] → Send Advisor
+```
+
+**SSH System State recopila:**
+- `docker ps` — estado contenedores
+- lab_memory últimas 24h
+- lab_tasks con status blocker/en_progreso
+- diagnostics_log últimas 3 entradas
+
+**Protocolo de clasificación Claude:**
+- Claude responde con JSON en primera línea: `{type, confidence, problem_identified, task_spec}`
+- `needs_fix` + confidence high/medium → escalado automático a Task Runner
+- `informational` / `needs_more_info` → respuesta directa a Marce
+
+**Parse Advisor Resp:** extrae el bloque JSON con regex, separa `human_text` del resto. `should_fix = type=needs_fix && confidence in [high,medium]`.
+
+### Tarea 4 — lab_memory INSERT
+
+Registro `aprendizaje_escalado_task_runner` insertado en lab_memory.
+
 

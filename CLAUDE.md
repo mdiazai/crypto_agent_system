@@ -203,6 +203,8 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - `docker ps --format "{{.Names}}"` rompe n8n (Go templates conflictan con expresiones n8n) — usar `docker ps | awk 'NR>1 {print "UP " $NF}'`
 - **Switch v3 — reglas nuevas:** al agregar reglas a un Switch existente via API, usar EXACTAMENTE el mismo `options` de las reglas preexistentes: `{"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1}`. Options incompleto causa doble routing: el item va al output correcto Y al fallback extra simultáneamente.
 - **Parse Input PM Agent:** exporta `{command, args, chat_id}`. `command` = primera palabra en lowercase. `args` = resto del texto. No existe campo `raw`.
+- **Parse Input Strategy Advisor:** exporta `{command, args, text, chat_id}`. `text` = mensaje completo. Texto libre → `command = 'text'`.
+- **PM Agent SSH nodes post-migración:** `Build Memoria Query`, `Q Estado`, `Q Tareas`, `Q Blockers`, `Insert Task`, `Update Done` migraron de `-d crypto_agent` a `-d lab_11mkeys` el 2026-07-05.
 
 ## Task Runner — arquitectura (actualizado 2026-06-29)
 - Webhook POST `task: string, chat_id: int` → SSHGetContext (docker ps + DB count) → SSH Get File (si `file_path` en body) → Build Prompt → Build Claude Body (Code JS + JSON.stringify) → Claude Generate Fix (HTTP string body) → Parse Fix → IF Has Fix → SSH Read File → Apply Fix (Code JS replace) → SSH Backup Write → SSH Gen Diff → Build Redis Payload → SSH Store Redis → **Build TG Body (Code)** → **Telegram Send Diff (HTTP Request)**
@@ -269,6 +271,11 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - `/advisor-report` probado: escribe en lab_memory + responde JSON ✅
   - `/evaluar`, `/estado`, texto libre: confirmados end-to-end en Telegram ✅ (execs 422-425)
   - **LECCIÓN webhook n8n:** nunca llamar `setWebhook` manualmente en un bot controlado por n8n — n8n registra su propio secret token al activar; override manual causa 403 en todos los mensajes. Fix: desactivar + reactivar workflow.
+  - **B4 — Diagnóstico autónomo + escalado Task Runner: deployado ✅** (2026-07-05) — 27 → 32 nodos
+    - Flujo texto libre extendido: SSH System State → (context) → Claude clasifica → IF Needs Fix
+    - `needs_fix` + confidence high/medium → Telegram Escalate + Build Task Spec + HTTP Task Runner
+    - `informational`/`needs_more_info` → Send Advisor directo
+    - Claude responde con JSON en primera línea: `{type, confidence, problem_identified, task_spec}`
 - **Fixes scoring anti-stablecoin: deployados ✅** (2026-07-04) — commits `97627be` (EUR exclusion), `1301062` (Fix 2+3)
   - Fix 1: `ALERT_THRESHOLD` 55 → 65 en `.env`
   - Fix 2: Executor skips tokens sin `chain`/`contract_address` (no on-chain validation)
