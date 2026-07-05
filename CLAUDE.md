@@ -73,8 +73,9 @@ completo de 5 pasos con los workflows JSON listos para importar.
 - `approve_deploy` — botón inline para aprobar deploy
 - `reject_deploy` — botón inline para rechazar deploy
 
-## PM Agent Bot — Comandos disponibles (actualizado 2026-07-04)
-- `/estado` — resumen de tareas activas (conteo por estado)
+## PM Agent Bot — Comandos disponibles (actualizado 2026-07-05)
+- `/estado` — resumen de tareas activas (conteo por estado) + navegación a otros comandos
+- `/proyectos` — tareas agrupadas por proyecto (in_progress / open / blocked) — agregado 2026-07-05
 - `/tareas` — lista de tareas en curso
 - `/blockers` — lista de blockers activos
 - `/nueva [descripción]` — crea nueva tarea
@@ -110,12 +111,13 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Code Agent:** Telegram Trigger → Route Command → Ops Router (arquitectura dual switch)
 - **SmartDevops Agent:** Telegram Trigger (callback_query) → Route Command → SSH execute/ignore → Telegram notify
 - **PM Agent:** Telegram Trigger → Parse Input → Route Command → nodos SSH (queries psql) → Fmt → Telegram
-  - id `HlY3gLWuJowyITB9` — 61 nodos (2026-07-04)
-  - Comandos: `/estado`, `/tareas`, `/blockers`, `/nueva`, `/done`, `/run`, `/memoria`, `/ingreso`, `/finanzas`
+  - id `HlY3gLWuJowyITB9` — 64 nodos (2026-07-05)
+  - Comandos: `/estado`, `/proyectos`, `/tareas`, `/blockers`, `/nueva`, `/done`, `/run`, `/memoria`, `/ingreso`, `/finanzas`
   - Callbacks: `tr_approve` (deploy), `tr_reject` (revert)
   - Fallback: Claude Classify (Haiku) → TECHNICAL → llama Task Runner | CONVERSATIONAL → Send Help
   - `/ingreso`: Switch[9] → Parse Ingreso → IF Valid → SSH INSERT lab_memory → Fmt OK → Send OK / Send Error
   - `/finanzas`: Switch[10] → Q Finanzas (SSH) → Fmt Finanzas (metas hardcoded) → Send Finanzas
+  - `/proyectos`: Switch[11] → Q Proyectos (SSH) → Fmt Proyectos → Send Proyectos — agregado 2026-07-05
 - **Task Runner:** Webhook → SSH context → Claude generate fix → Apply → Diff → Redis → Telegram buttons
   - id `2vlG13sLx4bXAY86` — webhook path: `task-runner`, 16 nodos
   - Redis key `tr:pending` (SETEX 3600) almacena `{file_path, service, rel_path, original_snippet, fixed_snippet, explanation}`
@@ -239,6 +241,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - **Alerta "discovery inactivo": RESUELTA ✅** (2026-07-05) — ver discovery heartbeat fix
 - **PM Agent: reconstruido y operativo ✅** (2026-06-13)
   - `/run [cmd]` operativo con blacklist: `rm -rf`, `docker rm`, `docker rmi`, `git push`, `git reset --hard`
+  - **Caso 1.1 fix ✅** (2026-07-05): emoji encoding corregido en Fmt Estado/Tareas/Blockers/NuevaOK/DoneOK + Send Help; `/proyectos` nuevo comando (64 nodos); `/estado` con navegación
 - **Focus Guardian: deployado y operativo ✅** (2026-06-25)
   - Container `focus_guardian` en `crypto_agent_network`, bot `@ElevenMkeys_Focus_bot`
 - **Discovery heartbeat fix: deployado ✅** (2026-07-05) — APScheduler 3.x + Python 3.11 bug; cron diario no awaitaba `run()`; fix: `_scheduled_run()` wrapper síncrono con `create_task`; commit `6bffa7d`; `discovery:last_run` TTL=100795 verificado
