@@ -41,7 +41,7 @@ class DiscoveryAgent:
 
         # Schedule daily run
         self._scheduler.add_job(
-            self.run,
+            self._scheduled_run,
             trigger="cron",
             hour=settings.discovery_schedule_hour,
             minute=0,
@@ -68,6 +68,11 @@ class DiscoveryAgent:
         except asyncio.CancelledError:
             self._scheduler.shutdown(wait=False)
             await bus.disconnect()
+
+
+    def _scheduled_run(self) -> None:
+        """APScheduler callback -- creates task on running loop (Python 3.11 fix)."""
+        asyncio.get_running_loop().create_task(self.run())
 
     async def _handle_manual_trigger(self, payload: dict) -> None:
         source = payload.get("source", "unknown")
