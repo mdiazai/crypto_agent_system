@@ -205,6 +205,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Parse Input PM Agent:** exporta `{command, args, chat_id}`. `command` = primera palabra en lowercase. `args` = resto del texto. No existe campo `raw`.
 - **Parse Input Strategy Advisor:** exporta `{command, args, text, chat_id}`. `text` = mensaje completo. Texto libre → `command = 'text'`.
 - **PM Agent SSH nodes post-migración:** `Build Memoria Query`, `Q Estado`, `Q Tareas`, `Q Blockers`, `Insert Task`, `Update Done` migraron de `-d crypto_agent` a `-d lab_11mkeys` el 2026-07-05.
+- **APScheduler 3.x + Python 3.11 — async bug:** `AsyncIOScheduler.add_job(async_func)` crea el coroutine pero no lo awaita → `RuntimeWarning: coroutine was never awaited`. Fix: pasar wrapper síncrono que haga `asyncio.get_running_loop().create_task(coro())`. Afecta discovery_agent.py (fix 2026-07-05).
 
 ## Task Runner — arquitectura (actualizado 2026-06-29)
 - Webhook POST `task: string, chat_id: int` → SSHGetContext (docker ps + DB count) → SSH Get File (si `file_path` en body) → Build Prompt → Build Claude Body (Code JS + JSON.stringify) → Claude Generate Fix (HTTP string body) → Parse Fix → IF Has Fix → SSH Read File → Apply Fix (Code JS replace) → SSH Backup Write → SSH Gen Diff → Build Redis Payload → SSH Store Redis → **Build TG Body (Code)** → **Telegram Send Diff (HTTP Request)**
@@ -238,6 +239,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - `/run [cmd]` operativo con blacklist: `rm -rf`, `docker rm`, `docker rmi`, `git push`, `git reset --hard`
 - **Focus Guardian: deployado y operativo ✅** (2026-06-25)
   - Container `focus_guardian` en `crypto_agent_network`, bot `@ElevenMkeys_Focus_bot`
+- **Discovery heartbeat fix: deployado ✅** (2026-07-05) — APScheduler 3.x + Python 3.11 bug; `discovery:last_run` TTL=100795 verificado post-deploy
 - **Orchestrator: estable ✅**
 - **Claude Code CLI: instalado en VPS** — v2.1.168, auth via `ANTHROPIC_API_KEY` en `~/.bashrc`
 - Umbral de alerta (70 pts): no alcanzado — requiere token con volumen > $3M diario

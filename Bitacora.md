@@ -3752,4 +3752,40 @@ Route Command [5] → SSH System State (NUEVO)
 
 Registro `aprendizaje_escalado_task_runner` insertado en lab_memory.
 
+---
+
+## Sesión 2026-07-05 — Fix Discovery Heartbeat (APScheduler + Python 3.11)
+
+**Problema reportado:** SmartDevops alertaba constantemente "Agentes sin actividad: discovery". El contenedor `crypto_agent_system-discovery-1` estaba vivo (0 restarts, Up 2 days) pero la key `discovery:last_run` no existía en Redis.
+
+**Diagnóstico:**
+
+1. Logs rotados (`-json.log.1`, `-json.log.2`) mostraron que el run de startup (2026-07-03 01:44:30 UTC) sí completó y escribió el heartbeat. TTL 28h → expiró ~05:44 UTC del 4 Jul.
+2. Los runs del cron diario (02:00 UTC) generaban este warning en stderr cada día:
+   ```
+   RuntimeWarning: coroutine 'DiscoveryAgent.run' was never awaited
+     handle = self._ready.popleft()
+   ```
+3. Root cause: **APScheduler 3.10.4 + Python 3.11** no awaita correctamente las funciones async pasadas a `add_job`. El `AsyncIOScheduler` crea el coroutine object pero no lo programa en el event loop — la coroutine se garbage-collects sin ejecutarse.
+
+**Fix aplicado** en `agents/discovery/discovery_agent.py`:
+
+```python
+# Antes: add_job pasaba self.run (async) directamente
+self._scheduler.add_job(self.run, trigger="cron", ...)
+
+# Después: wrapper síncrono que crea la task en el loop correcto
+self._scheduler.add_job(self._scheduled_run, trigger="cron", ...)
+
+def _scheduled_run(self) -> None:
+    """APScheduler callback -- creates task on running loop (Python 3.11 fix)."""
+    asyncio.get_running_loop().create_task(self.run())
+```
+
+**Deploy:** rebuild + restart del container discovery.
+
+**Verificación:** `discovery:last_run` aparece en Redis con `TTL=100795 VALUE=ok` dentro de los 3 minutos del restart. ✅
+
+**Lección:** APScheduler 3.x con `AsyncIOScheduler` tiene un comportamiento roto en Python 3.11 al pasar async functions directamente a `add_job`. El workaround es siempre usar un wrapper síncrono que llame a `asyncio.get_running_loop().create_task(coro())`. El try/except del heartbeat ocultaba silenciosamente el error — el run() nunca llegaba a ejecutarse en absoluto.
+
 
