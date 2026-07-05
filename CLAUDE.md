@@ -201,6 +201,8 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - Guardada en `/opt/crypto_agent_system/.env` como `N8N_API_KEY` ✅ (2026-06-27)
 - Lecciones n8n Telegram node: usar **typeVersion 1.2** + `additionalFields: {}`; typeVersion 1 da 400 Bad Request
 - `docker ps --format "{{.Names}}"` rompe n8n (Go templates conflictan con expresiones n8n) — usar `docker ps | awk 'NR>1 {print "UP " $NF}'`
+- **Switch v3 — reglas nuevas:** al agregar reglas a un Switch existente via API, usar EXACTAMENTE el mismo `options` de las reglas preexistentes: `{"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1}`. Options incompleto causa doble routing: el item va al output correcto Y al fallback extra simultáneamente.
+- **Parse Input PM Agent:** exporta `{command, args, chat_id}`. `command` = primera palabra en lowercase. `args` = resto del texto. No existe campo `raw`.
 
 ## Task Runner — arquitectura (actualizado 2026-06-29)
 - Webhook POST `task: string, chat_id: int` → SSHGetContext (docker ps + DB count) → SSH Get File (si `file_path` en body) → Build Prompt → Build Claude Body (Code JS + JSON.stringify) → Claude Generate Fix (HTTP string body) → Parse Fix → IF Has Fix → SSH Read File → Apply Fix (Code JS replace) → SSH Backup Write → SSH Gen Diff → Build Redis Payload → SSH Store Redis → **Build TG Body (Code)** → **Telegram Send Diff (HTTP Request)**
@@ -278,6 +280,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - Weekly Board: SSH Finance + sección 💰 FINANZAS MES — 9 → 10 nodos
   - Datos: JSON en lab_memory, tipo=operativa, agente=finance_agent, clave=ingreso_{proyecto}_{fecha}_{ts}
   - Metas: crypto_agent $500, estrategia_b $200, depin $120, nodeflow $0
+  - **End-to-end confirmado ✅** `/ingreso crypto_agent 10 test` → ✅ Ingreso registrado (exec 471)
 - **B3.2 Soberanía tecnológica: PENDIENTE** — Marce activa Monkey Brain manualmente (NO Claude Code)
 - **B2 Evaluación e integración de proyectos: COMPLETA ✅** (2026-07-04)
   - 4 registros en lab_memory: `b2_evaluacion_crypto_agent`, `b2_evaluacion_estrategia_b`, `b2_evaluacion_depin`, `b2_evaluacion_nodeflow`

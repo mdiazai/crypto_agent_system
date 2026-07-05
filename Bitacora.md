@@ -3667,4 +3667,40 @@ Con los 3 fixes, RCLOI/ROPRA/RFLHY/RBTGO pasarían de ~67 pts a ~47 pts:
 - Weekly Board: incluye sección finanzas
 - B3.2 (Soberanía tecnológica): Marce activa Monkey Brain manualmente, NO Claude Code
 
+---
+
+## Sesión 2026-07-04 — Fixes post-deploy Finance Agent
+
+### Bug 1: Parse Ingreso usaba `$json.raw` (no existe)
+
+Parse Input del PM Agent exporta `{command, args, chat_id}` — NO `raw`.
+- `command`: primera palabra del mensaje (ej: `/ingreso`)
+- `args`: el resto (ej: `crypto_agent 10 test`)
+
+El regex en Parse Ingreso buscaba `/ingreso` en `$json.raw` (vacío) → siempre `valid: false`.
+
+**Fix:** cambiar a `$json.args` y ajustar regex a `^(\S+)\s+([\d.]+)\s+(.+)$` (sin el prefijo `/ingreso`).
+
+### Bug 2: Switch rules con options incompleto → doble routing
+
+Las reglas [9] `/ingreso` y [10] `/finanzas` se agregaron con:
+```json
+"options": { "caseSensitive": false }
+```
+Las reglas originales [0]-[8] tienen:
+```json
+"options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1 }
+```
+
+**Efecto:** n8n Switch v3 con options incompleto enruta al output correcto ([9]) Y también al fallback extra — ambos paths corrieron simultáneamente. El usuario recibió ✅ Ingreso registrado + "No fue posible generar un fix" del Task Runner.
+
+**Fix:** alinear las nuevas reglas al mismo formato `options` que las existentes.
+
+**Lección permanente:** al agregar reglas a un Switch existente, siempre copiar el formato `options` exacto de las reglas preexistentes, no construirlo desde cero.
+
+### Estado final verificado
+
+- `/ingreso crypto_agent 10 test` → ✅ solo el mensaje de éxito, sin Task Runner espurio
+- End-to-end confirmado por Marce (exec 471)
+
 
