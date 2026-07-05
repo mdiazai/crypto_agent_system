@@ -111,13 +111,14 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Code Agent:** Telegram Trigger → Route Command → Ops Router (arquitectura dual switch)
 - **SmartDevops Agent:** Telegram Trigger (callback_query) → Route Command → SSH execute/ignore → Telegram notify
 - **PM Agent:** Telegram Trigger → Parse Input → Route Command → nodos SSH (queries psql) → Fmt → Telegram
-  - id `HlY3gLWuJowyITB9` — 64 nodos (2026-07-05, Casos 1.1/1.2/1.3)
+  - id `HlY3gLWuJowyITB9` — 71 nodos (2026-07-05, Casos 1.1/1.2/1.3 + /nuevo_proyecto)
   - Comandos: `/estado`, `/proyectos`, `/tareas`, `/blockers`, `/nueva`, `/done`, `/run`, `/memoria`, `/ingreso`, `/finanzas`
   - Callbacks: `tr_approve` (deploy), `tr_reject` (revert)
   - Fallback: Claude Classify (Haiku) → TECHNICAL → llama Task Runner | CONVERSATIONAL → Send Help
   - `/ingreso`: Switch[9] → Parse Ingreso → IF Valid → SSH INSERT lab_memory → Fmt OK → Send OK / Send Error
   - `/finanzas`: Switch[10] → Q Finanzas (SSH) → Fmt Finanzas (metas hardcoded) → Send Finanzas
-  - `/proyectos`: Switch[11] → Q Proyectos (SSH) → Fmt Proyectos → Send Proyectos — agregado 2026-07-05
+  - `/proyectos`: Switch[11] → Q Proyectos (SSH JOIN lab_tasks via FK) → Fmt Proyectos → Send Proyectos
+  - `/nuevo_proyecto`: Switch[12] → Parse Nuevo Proyecto → IF Valid → SSH Insert Proyecto → Fmt OK → Send OK / Send Error + HTTP Advisor Notify (paralelo)
 - **Task Runner:** Webhook → SSH context → Claude generate fix → Apply → Diff → Redis → Telegram buttons
   - id `2vlG13sLx4bXAY86` — webhook path: `task-runner`, 16 nodos
   - Redis key `tr:pending` (SETEX 3600) almacena `{file_path, service, rel_path, original_snippet, fixed_snippet, explanation}`
@@ -243,6 +244,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
   - `/run [cmd]` operativo con blacklist: `rm -rf`, `docker rm`, `docker rmi`, `git push`, `git reset --hard`
   - **Caso 1.1 fix ✅** (2026-07-05): emoji encoding corregido en Fmt Estado/Tareas/Blockers/NuevaOK/DoneOK + Send Help; `/proyectos` nuevo comando (64 nodos); `/estado` con navegación
   - **Casos 1.2/1.3 fix ✅** (2026-07-05): `/tareas` con fechas + proyecto (JOIN lab_projects); `/proyectos` desde lab_memory b2_evaluacion (4 proyectos, veredictos reales); `/nueva` parsea `#proyecto` optional (`#11mkeys_lab`, `#crypto_agent`, `#nodeflow`, `#depin`, `#estrategia_b`); lab_projects: 5 filas (NodeFlow id=3, DePIN id=4, Estrategia B id=5 — insertados 2026-07-05)
+  - **lab_projects fix ✅** (2026-07-05): ALTER TABLE agrega nombre/titulo/fase/bloqueante/gate_salida/agentes/actualizado_en + trigger; `/proyectos` usa JOIN lab_tasks via project_id FK + STRING_AGG tareas; `/nuevo_proyecto` comando nuevo (71 nodos, Switch rule[12], Advisor notify); Q Estado excluye 11mkeys_lab del conteo; Insert Task usa `nombre` shortcode
 - **Focus Guardian: deployado y operativo ✅** (2026-06-25)
   - Container `focus_guardian` en `crypto_agent_network`, bot `@ElevenMkeys_Focus_bot`
 - **Discovery heartbeat fix: deployado ✅** (2026-07-05) — APScheduler 3.x + Python 3.11 bug; cron diario no awaitaba `run()`; fix: `_scheduled_run()` wrapper síncrono con `create_task`; commit `6bffa7d`; `discovery:last_run` TTL=100795 verificado
