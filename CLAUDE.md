@@ -111,7 +111,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **Code Agent:** Telegram Trigger → Route Command → Ops Router (arquitectura dual switch)
 - **SmartDevops Agent:** Telegram Trigger (callback_query) → Route Command → SSH execute/ignore → Telegram notify
 - **PM Agent:** Telegram Trigger → Parse Input → Route Command → nodos SSH (queries psql) → Fmt → Telegram
-  - id `HlY3gLWuJowyITB9` — 64 nodos (2026-07-05)
+  - id `HlY3gLWuJowyITB9` — 64 nodos (2026-07-05, Casos 1.1/1.2/1.3)
   - Comandos: `/estado`, `/proyectos`, `/tareas`, `/blockers`, `/nueva`, `/done`, `/run`, `/memoria`, `/ingreso`, `/finanzas`
   - Callbacks: `tr_approve` (deploy), `tr_reject` (revert)
   - Fallback: Claude Classify (Haiku) → TECHNICAL → llama Task Runner | CONVERSATIONAL → Send Help
@@ -242,6 +242,7 @@ Bot unificado: trigger y respuestas por el mismo bot `@ElevenMkeys_PM_Bot` (ver 
 - **PM Agent: reconstruido y operativo ✅** (2026-06-13)
   - `/run [cmd]` operativo con blacklist: `rm -rf`, `docker rm`, `docker rmi`, `git push`, `git reset --hard`
   - **Caso 1.1 fix ✅** (2026-07-05): emoji encoding corregido en Fmt Estado/Tareas/Blockers/NuevaOK/DoneOK + Send Help; `/proyectos` nuevo comando (64 nodos); `/estado` con navegación
+  - **Casos 1.2/1.3 fix ✅** (2026-07-05): `/tareas` con fechas + proyecto (JOIN lab_projects); `/proyectos` desde lab_memory b2_evaluacion (4 proyectos, veredictos reales); `/nueva` parsea `#proyecto` optional (`#11mkeys_lab`, `#crypto_agent`, `#nodeflow`, `#depin`, `#estrategia_b`); lab_projects: 5 filas (NodeFlow id=3, DePIN id=4, Estrategia B id=5 — insertados 2026-07-05)
 - **Focus Guardian: deployado y operativo ✅** (2026-06-25)
   - Container `focus_guardian` en `crypto_agent_network`, bot `@ElevenMkeys_Focus_bot`
 - **Discovery heartbeat fix: deployado ✅** (2026-07-05) — APScheduler 3.x + Python 3.11 bug; cron diario no awaitaba `run()`; fix: `_scheduled_run()` wrapper síncrono con `create_task`; commit `6bffa7d`; `discovery:last_run` TTL=100795 verificado
