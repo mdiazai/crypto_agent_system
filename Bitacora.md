@@ -3869,3 +3869,72 @@ El mensaje de ayuda al usar `/nueva` sin args no listaba los proyectos disponibl
 
 **Lección clave (Bug 2):** En n8n, el prefijo `=` en un campo no es cosmético — es el flag que activa el expression parser. Perderlo al actualizar vía API deja las plantillas `{{ }}` como texto literal sin error visible. Siempre verificar que los campos con expresiones empiecen con `=` en el JSON que se hace PUT.
 
+---
+
+## Sesión 2026-07-05 — Escritura sistemática en lab_memory (PM Agent + SmartDevops)
+
+**Contexto:** `lab_memory` existía desde el 1 de julio pero solo Strategy Advisor y Monkey Brain escribían en ella. PM Agent (las acciones más frecuentes del lab) y SmartDevops (los deploys aprobados) no dejaban rastro. La tabla era un repositorio de evaluaciones estratégicas, no un log operativo real.
+
+**Estado antes:**
+```
+agente             | tipo        | registros
+strategy_advisor   | estrategica | 4
+strategy_advisor   | operativa   | 6
+strategy_advisor   | aprendizaje | 1
+monkey_brain       | insight     | 3
+finance_agent      | operativa   | 2
+system             | estrategica | 5
+system             | aprendizaje | 1
+```
+PM Agent, Task Runner, SmartDevops: 0 registros.
+
+---
+
+### Diseño
+
+El principio: cada agente escribe cuando **completa** una acción relevante, no cuando ejecuta una consulta. Las lecturas (`/estado`, `/tareas`, `/proyectos`) no generan registros. Las escrituras sí.
+
+Patrón usado para cada nueva rama de escritura:
+1. **Code node (`Prep Mem X`)**: recibe el output del nodo de acción, construye el SQL con single-quote escaping, retorna `{mem_sql: "INSERT INTO lab_memory ..."}`. Si el nodo upstream no tuvo output, retorna `[]` (n8n no ejecuta el siguiente nodo).
+2. **SSH node (`SSH Write Mem X`)**: ejecuta `psql ... -c "{{ $json.mem_sql }}"` en expression mode (`=` prefix).
+
+Cada par se conecta en fan-out desde el nodo de acción, en paralelo con el Send de confirmación ya existente. El usuario ve la respuesta de Telegram normalmente; el registro en lab_memory es un efecto secundario invisible.
+
+---
+
+### PUT 1 — PM Agent (71 → 81 nodos): 5 pares nuevos
+
+| Trigger | Fan-out desde | Clave generada | Agente |
+|---|---|---|---|
+| `/nueva` | Insert Task | `pm_nueva_{ts}` | pm_agent |
+| `/done` | Update Done | `pm_done_{ts}` | pm_agent |
+| `/nuevo_proyecto` | SSH Insert Proyecto | `pm_proyecto_{ts}` | pm_agent |
+| `tr_approve` | TR Del Redis Approve | `tr_deploy_{ts}` | task_runner |
+| `tr_reject` | TR Del Redis Reject | `tr_reject_{ts}` | task_runner |
+
+Para `/nueva`: `Prep Mem Nueva` accede a `$input.first().json.stdout` (el id de la tarea) y a `$('Prep Nueva').first().json.proy_key` (el proyecto). El `$()` cross-reference en n8n funciona aunque el nodo no esté directamente conectado — cualquier nodo ejecutado previamente en el workflow es accesible.
+
+Para `tr_approve`: accede a `$('TR Parse Pending Approve').first().json.pending_data` que contiene el service y file_path del fix deployado.
+
+---
+
+### PUT 2 — SmartDevops (6 → 8 nodos): 1 par nuevo
+
+`SD Execute Command[0]` → fan-out → `Prep Mem SD` → `SSH Write Mem SD`
+
+Escribe `sd_deploy_{ts}` cada vez que Marce aprueba un comando (callback `sd_approve`). El valor incluye los primeros 200 chars del output del comando ejecutado.
+
+Solo se activa cuando hay una aprobación real — el workflow de SmartDevops solo corre cuando llega un `sd_approve`, no en cada ciclo de 30 minutos del contenedor Python.
+
+---
+
+### SQL Fix 4 — registros retroactivos
+
+Dos INSERTs con guard `WHERE NOT EXISTS` para documentar el trabajo de la sesión del 5 de julio antes de que existiera este sistema:
+- `sesion_5jul_fixes` (agente: task_runner): resumen de B4, discovery heartbeat, anti-stablecoin, PM Agent 61→71, Task Runner botones.
+- `sesion_5jul_comandos` (agente: pm_agent): resumen de fix emojis, /proyectos, /nuevo_proyecto, parser /nueva, = prefix fix.
+
+**Resultado:** PM Agent 71→81 nodos, SmartDevops 6→8 nodos. Commit `0b35e4d`. Verificable con `/memoria hoy` en el PM Bot tras la próxima acción.
+
+**Lección:** El patrón fan-out + Code + SSH es limpio para efectos secundarios de escritura en n8n: no bloquea el flujo principal, falla silenciosamente si el upstream no produjo output (`return []`), y no requiere modificar los nodos existentes.
+
