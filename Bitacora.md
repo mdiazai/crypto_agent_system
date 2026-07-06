@@ -3938,3 +3938,49 @@ Dos INSERTs con guard `WHERE NOT EXISTS` para documentar el trabajo de la sesió
 
 **Lección:** El patrón fan-out + Code + SSH es limpio para efectos secundarios de escritura en n8n: no bloquea el flujo principal, falla silenciosamente si el upstream no produjo output (`return []`), y no requiere modificar los nodos existentes.
 
+---
+
+## Sesión 2026-07-05 — RAG ciclo activo en todos los agentes (fix_lab_memory_rag_activo)
+
+**Contexto:** `lab_memory` acumulaba registros pero los agentes no los leían antes de actuar. El ciclo RAG (leer → actuar con contexto → escribir) estaba incompleto: solo teníamos la parte de escritura. Esta sesión cierra el ciclo en 4 de 5 agentes.
+
+**Qué cambia por agente:**
+
+### PUT 1 — Strategy Advisor (32 nodos, sin cambio de count)
+
+**SSH Ctx Advisor + SSH Ctx Evaluar**: query ampliada de 2 columnas a 6 (`tipo | agente | clave | val | proyecto | fecha`) y de solo `estrategica/aprendizaje` a incluir también `operativa` de las últimas 24 horas. Antes se perdía la actividad reciente de PM Agent y Task Runner que es exactamente lo que el Advisor necesita para no recomendar cosas que ya están en curso.
+
+**Build Advisor Body + Build Eval Body**: parsing actualizado para destructurar los 6 campos. Claude Advisor ahora ve en el contexto: `[aprendizaje] lab_restricciones_tecnicas (system, 2026-07-01): docker compose logs se cuelga...` en lugar de solo `lab_restricciones_tecnicas: docker compose logs se cuelga...`. La procedencia y el tipo importan para la calidad de las respuestas.
+
+### PUT 2 — Task Runner (17 → 18 nodos)
+
+Nuevo nodo **SSH RAG Context** insertado entre `SSH Get File` y `Build Prompt`. Conexión modificada: `SSH Get File → SSH RAG Context → Build Prompt` (antes: `SSH Get File → Build Prompt`).
+
+Query: `aprendizajes` globales + registros `operativos del task_runner` de los últimos 7 días. Con esto, el Task Runner sabe si ya aplicó un fix similar antes y qué resultado tuvo, antes de generar el nuevo fix.
+
+`Build Prompt` actualizado para incluir sección `APRENDIZAJES PREVIOS (lab_memory):` con el output de SSH RAG Context.
+
+### PUT 3 — PM Agent (81 → 82 nodos)
+
+Nuevo nodo **SSH RAG Nueva** insertado entre `IF Nueva Valid` e `Insert Task`. Conexión modificada: `IF Nueva Valid[0] → SSH RAG Nueva → Insert Task` (antes: `IF Nueva Valid[0] → Insert Task`).
+
+Query: tareas abiertas o en progreso del mismo proyecto, creadas en los últimos 14 días. Implementación no-blocking: crea la tarea siempre, pero añade un footnote en la confirmación con las tareas recientes si las hay. Útil para detectar duplicados sin interrumpir el flujo.
+
+`Fmt Nueva OK` actualizado: si hay resultados RAG, añade `📋 Tareas recientes en este proyecto: #ID: título [status, fecha]`.
+
+### PUT 4 — Monkey Brain (49 nodos, sin cambio de count)
+
+**Search Similar**: antes solo `tipo='insight'`, ahora suma `estrategica` y `aprendizaje`. Orden de prioridad: insight (1) → estrategica (2) → aprendizaje (3). Límite 20 registros (antes 10).
+
+**Build Research Body**: label cambiado de `INSIGHTS ANTERIORES EN LAB MEMORY:` a `MEMORIA ANTERIOR DEL LAB (insight/estrategica/aprendizaje):`. Con esto Claude Research sabe que el contexto incluye no solo ideas previas sino también decisiones estratégicas y lecciones aprendidas — cambia cómo las usa en el análisis.
+
+### SQL Fix 6 — lab_memory_rag_protocolo
+
+Registro estratégico que documenta el protocolo RAG completo: qué agentes participan, qué queries usan, qué formato de datos, qué orden de prioridad. Útil para el Strategy Advisor y para auditar el sistema en el futuro.
+
+---
+
+**Estado final SmartDevops:** Solo puede leer de lab_memory en el n8n workflow (callbacks sd_approve/sd_ignore). El diagnóstico real ocurre en el contenedor Python `agents/smartdevops/smartdevops_agent.py`. El RAG para SmartDevops requiere modificar ese código Python + rebuild del contenedor — se deja como tarea separada.
+
+**Resultado:** 4 PUTs aplicados, 1 SQL. Todos activos. Commits incluyen CLAUDE.md + Bitácora.
+
