@@ -3980,7 +3980,18 @@ Registro estratégico que documenta el protocolo RAG completo: qué agentes part
 
 ---
 
-**Estado final SmartDevops:** Solo puede leer de lab_memory en el n8n workflow (callbacks sd_approve/sd_ignore). El diagnóstico real ocurre en el contenedor Python `agents/smartdevops/smartdevops_agent.py`. El RAG para SmartDevops requiere modificar ese código Python + rebuild del contenedor — se deja como tarea separada.
+### Fix 5 — SmartDevops (Python container, rebuild)
+
+El n8n workflow de SmartDevops solo maneja callbacks Telegram — el diagnóstico con Claude ocurre en `agents/smartdevops/claude_diagnostics.py`. La modificación requiere editar Python y rebuildar el contenedor.
+
+Cambios en `claude_diagnostics.py`:
+- **Nuevos imports:** `from sqlalchemy import text` + `from shared.models import get_session`
+- **Nuevo método `_get_rag_context()`**: query async via SQLAlchemy `AsyncSession`. Lee lab_memory antes de cada diagnóstico: `aprendizajes` globales + registros `operativa` del agente smartdevops de los últimos 7 días + registros `estrategica` del proyecto crypto_agent. Máximo 8 registros, priorizado por tipo y fecha. Si la query falla (conexión, etc.) retorna string vacío sin crashear.
+- **`_build_prompt()` actualizado**: acepta `rag_ctx` como segundo parámetro. Si no está vacío, agrega sección `=== APRENDIZAJES LAB MEMORY ===` al final del prompt que Claude recibe.
+- **`diagnose()` actualizado**: llama `await self._get_rag_context()` antes de `_build_prompt()`.
+- **System prompt**: agregada instrucción de uso del contexto RAG.
+
+Docker build + restart. Verificación: `claude_diagnostics.result severity=ok has_fix=false` sin `rag_error` en los logs. Commit `302a64b` en `/opt/crypto_agent_system` (rama main).
 
 **Resultado:** 4 PUTs aplicados, 1 SQL. Todos activos. Commits incluyen CLAUDE.md + Bitácora.
 
