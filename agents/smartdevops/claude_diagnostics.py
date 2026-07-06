@@ -2,8 +2,10 @@ import json
 
 import httpx
 import structlog
+from sqlalchemy import text
 
 from shared.config import settings
+from shared.models import get_session
 
 log = structlog.get_logger(__name__)
 
@@ -59,6 +61,9 @@ IMPORTANTE: si detectás un problema de inactividad de agente, siempre proponé
 `docker restart crypto_agent_system-SERVICE-1` como fix_command — NO digas
 "verificá los contenedores" ni dejes fix_command=null cuando hay una acción clara.
 
+Si el snapshot incluye una sección APRENDIZAJES LAB MEMORY, usala para evitar
+repetir diagnósticos incorrectos documentados previamente (tipo 'aprendizaje').
+
 Respondé SIEMPRE con JSON válido y nada más:
 {"severity":"ok|warn|critical","diagnosis":"descripción concisa en español","fix_command":"comando bash único o null","fix_description":"descripción en español ≤80 chars de qué hace el fix, o null"}
 """.strip()
@@ -66,7 +71,8 @@ Respondé SIEMPRE con JSON válido y nada más:
 
 class ClaudeDiagnostics:
     async def diagnose(self, snapshot: dict) -> dict:
-        prompt = self._build_prompt(snapshot)
+        rag_ctx = await self._get_rag_context()
+        prompt = self._build_prompt(snapshot, rag_ctx)
         try:
             response = await self._call_claude(prompt)
             result = self._parse_response(response)
@@ -85,7 +91,29 @@ class ClaudeDiagnostics:
                 "fix_description": None,
             }
 
-    def _build_prompt(self, snapshot: dict) -> str:
+    async def _get_rag_context(self) -> str:
+        """Query lab_memory for relevant context before diagnosing."""
+        try:
+            async with get_session() as session:
+                q = text(
+                    "SELECT tipo || ': ' || clave || ' -- ' || "
+                    "LEFT(REPLACE(REPLACE(valor, chr(10), ' '), chr(13), ''), 300) "
+                    "FROM lab_memory "
+                    "WHERE vigente = true "
+                    "AND (tipo = 'aprendizaje' "
+                    "OR (agente = 'smartdevops' AND creado_en > NOW() - INTERVAL '7 days') "
+                    "OR (tipo = 'estrategica' AND proyecto = 'crypto_agent')) "
+                    "ORDER BY tipo, creado_en DESC LIMIT 8"
+                )
+                result = await session.execute(q)
+                rows = result.fetchall()
+                if rows:
+                    return "\n".join(r[0] for r in rows)
+        except Exception as e:
+            log.warning("claude_diagnostics.rag_error", error=str(e))
+        return ""
+
+    def _build_prompt(self, snapshot: dict, rag_ctx: str = "") -> str:
         lines = [f"Timestamp: {snapshot.get('collected_at', '?')}"]
 
         lines.append("\n=== CONTENEDORES ===")
@@ -153,6 +181,10 @@ class ClaudeDiagnostics:
             lines.append(f"  discovery.last_scan: ERROR — {act['discovery_db_error']}")
         else:
             lines.append("  discovery.last_scan: sin datos")
+
+        if rag_ctx:
+            lines.append("\n=== APRENDIZAJES LAB MEMORY ===")
+            lines.append(rag_ctx)
 
         return "\n".join(lines)
 
