@@ -3788,4 +3788,84 @@ def _scheduled_run(self) -> None:
 
 **Lección:** APScheduler 3.x con `AsyncIOScheduler` tiene un comportamiento roto en Python 3.11 al pasar async functions directamente a `add_job`. El workaround es siempre usar un wrapper síncrono que llame a `asyncio.get_running_loop().create_task(coro())`. El try/except del heartbeat ocultaba silenciosamente el error — el run() nunca llegaba a ejecutarse en absoluto.
 
+---
+
+## Sesión 2026-07-05 — PM Agent: fixes completos Casos 1.1 / 1.2-1.3 / lab_projects / parser /nueva
+
+Sesión larga de consolidación del PM Agent. Cuatro rondas de fixes en un solo workflow (`HlY3gLWuJowyITB9`, 71 nodos).
+
+---
+
+### Caso 1.1 — Emoji encoding + comando /proyectos
+
+**Problema:** Los emojis en 5 nodos de formato (Fmt Estado, Fmt Tareas, Fmt Blockers, Fmt Nueva OK, Fmt Done OK) y en Send Help llegaban corruptos a Telegram. Aparecían como `ðŸ"Š` en lugar de 📊.
+
+**Root cause:** El encoding era Latin-1 interpretando bytes UTF-8 — un clásico mojibake. El código JavaScript tenía los emojis como literales dentro del payload JSON, y algo en la cadena de almacenamiento/recuperación los corruptía.
+
+**Fix:** Reescribir todos los emojis usando Python escapes Unicode (`\U0001F4CA`, `\U0001F534`, etc.) en el script de actualización, con `ensure_ascii=False` en el JSON dump. Los emojis llegan como codepoints correctos al workflow.
+
+**Además:** Agregados 3 nodos nuevos para el comando `/proyectos` (Q Proyectos SSH + Fmt Proyectos Code + Send Proyectos Telegram), regla[11] en Route Command. El comando lista los proyectos activos del lab con sus estados.
+
+---
+
+### Casos 1.2 / 1.3 — /tareas con fechas, /proyectos desde lab_memory, /nueva con #proyecto
+
+**Problemas:**
+- `/tareas` no mostraba la fecha ni el proyecto de cada tarea.
+- `/proyectos` rompía porque usaba una columna `proyecto` que no existe en `lab_tasks` (el esquema real usa `project_id` FK hacia `lab_projects`).
+- `/nueva título #proyecto` no enviaba el proyecto — siempre asignaba a Lab general.
+
+**Fix en Q Tareas:** JOIN `lab_tasks t LEFT JOIN lab_projects p ON p.id = t.project_id`, devuelve 7 campos: `id~title~status~priority~due~project_name~created_at`.
+
+**Fix en Q Proyectos:** Reescrito para leer `lab_memory WHERE clave LIKE 'b2_evaluacion_%'` — los 4 registros de evaluación de proyectos (crypto_agent, estrategia_b, depin, nodeflow). Usa separador `^^^` para evitar conflictos con el contenido.
+
+**Fix en Prep Nueva:** Parseado de `#proyecto` al final del mensaje (regex `^(.+?)\s+#(\w+)$`), mapeo a `proy_key`/`proy_name`, propagado a Insert Task.
+
+**DB:** INSERT de 3 proyectos faltantes en `lab_projects`: NodeFlow (id=3), DePIN (id=4), Estrategia B (id=5).
+
+---
+
+### Fix lab_projects tabla — /proyectos con datos reales + /nuevo_proyecto
+
+**Problema:** `lab_projects` solo tenía columnas básicas (`id, name, status, description, created_at`). `/proyectos` mostraba datos genéricos sin fase, bloqueante ni tareas asociadas.
+
+**Fix DB:**
+```sql
+ALTER TABLE lab_projects ADD COLUMN nombre VARCHAR(50) UNIQUE,
+  ADD COLUMN titulo VARCHAR(200), ADD COLUMN fase VARCHAR(50),
+  ADD COLUMN bloqueante TEXT, ADD COLUMN gate_salida TEXT,
+  ADD COLUMN agentes TEXT, ADD COLUMN actualizado_en TIMESTAMP WITH TIME ZONE;
+-- trigger update_lab_projects_ts
+-- UPDATE 5 filas con shortcodes: crypto_agent, 11mkeys_lab, nodeflow, depin, estrategia_b
+```
+
+**Fix Q Proyectos:** Query completamente reescrita con JOIN `lab_tasks` via `project_id`, `STRING_AGG` de títulos de tareas por proyecto, 7 campos separados por `^^^`.
+
+**Nuevo comando `/nuevo_proyecto`:** 7 nodos nuevos (Parse Nuevo Proyecto → IF Valid → SSH Insert → Fmt OK → Send OK / Send Error + HTTP Advisor Notify en paralelo). Switch regla[12]. Al crear un proyecto nuevo, notifica automáticamente al Strategy Advisor para que lo evalúe.
+
+**Q Estado:** Excluye `11mkeys_lab` del conteo de proyectos (es el proyecto "general", no un proyecto real del portfolio).
+
+---
+
+### fix_nueva_tarea_parser — 4 bugs en un PUT
+
+**Bug 1 — Regex demasiado estricto:**  
+`#(\w+)` solo matcheaba una palabra sin espacios. `/nueva Fix bug #Crypto Agent System` fallaba — el título y el proyecto quedaban sin parsear.  
+**Fix:** Regex `#(.+)$` (captura todo después de `#`), luego normalización: `toLowerCase().replace(/\s+/g, '_')`. ALIASES map para variantes: `crypto_agent_system → crypto_agent`, `11mkeys → 11mkeys_lab`, `lab → 11mkeys_lab`, `estrategia → estrategia_b`, `crypto → crypto_agent`, etc.
+
+**Bug 2 — Insert Task sin prefijo `=` (crítico):**  
+En n8n, un campo que empieza con `=` es expression mode — las plantillas `{{ $json.campo }}` se evalúan. Sin el `=`, son texto literal. El nodo Insert Task había perdido el `=` en una edición anterior → `WHERE nombre='{{ $json.proy_key }}'` buscaba literalmente ese string → 0 rows → INSERT 0 0.  
+**Fix:** Restaurar el `=` al inicio del campo command.
+
+**Bug 3 — Footer de /proyectos genérico:**  
+El footer decía `/nueva [desc] #[proyecto]` sin mostrar los proyectos reales.  
+**Fix:** `/nueva [desc] #crypto_agent · #nodeflow · #depin · #estrategia_b`
+
+**Bug 4 — Help message incompleto:**  
+El mensaje de ayuda al usar `/nueva` sin args no listaba los proyectos disponibles.  
+**Fix:** Se agrega la lista de proyectos y ejemplos en el mensaje de error.
+
+**Resultado:** 3 nodos modificados en un solo PUT. Workflow activo, 71 nodos. Commit `5e5ec15`.
+
+**Lección clave (Bug 2):** En n8n, el prefijo `=` en un campo no es cosmético — es el flag que activa el expression parser. Perderlo al actualizar vía API deja las plantillas `{{ }}` como texto literal sin error visible. Siempre verificar que los campos con expresiones empiecen con `=` en el JSON que se hace PUT.
 
