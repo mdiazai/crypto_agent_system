@@ -3995,3 +3995,61 @@ Docker build + restart. Verificación: `claude_diagnostics.result severity=ok ha
 
 **Resultado:** 4 PUTs aplicados, 1 SQL. Todos activos. Commits incluyen CLAUDE.md + Bitácora.
 
+---
+
+## Sesión 2026-07-06 — fix_advisor_rag_vps_restricciones
+
+**Contexto:** Incidente de producción donde el Strategy Advisor sugirió `docker logs` para diagnosticar un problema. Ese comando se cuelga indefinidamente en el VPS 167.88.33.68. Causa raíz: el Advisor no tenía instrucciones sobre restricciones del VPS, no usaba el contexto RAG para reconocer lecciones previas, y no tenía forma de ejecutar comandos de diagnóstico él mismo (le pedía a Marce que los corriera).
+
+Un PUT al workflow `7Ohb4fekhWkgfMVE` con 6 fixes:
+
+### Fix 1+4 — Build Advisor Body: system prompt ampliado (32 → mismo count, contenido cambiado)
+
+Dos adiciones al system prompt:
+
+**needs_diagnosis JSON example:** Se agrega el tipo `needs_diagnosis` a los ejemplos de clasificación JSON. Permite que Claude genere `{"type":"needs_diagnosis","diagnostic_command":"comando_bash"}` cuando necesita información adicional que puede obtener ejecutando un comando SSH — sin pedirle a Marce que lo haga.
+
+**VPS restrictions + RAG usage:** Sección nueva al final del system prompt:
+- Lista negra explícita: `docker logs`, `docker compose logs`, `docker compose exec` — se cuelgan indefinidamente
+- Forma correcta de ver logs (vía python3 inspect), queries DB (timeout + docker exec psql), Redis (timeout + redis-cli)
+- Instrucción explícita: ejecutar diagnósticos él mismo, no delegarlos a Marce
+- Instrucción de uso RAG: cuando hay un `aprendizaje` relevante en el contexto, citarlo; no empezar desde cero
+
+### Fix 2 — SSH Ctx Advisor: ventana 7 días
+
+Antes: `tipo IN ('aprendizaje','estrategica') OR creado_en > 24h`  
+Después: `tipo='aprendizaje' OR creado_en > 7 DAYS OR (tipo='estrategica' AND proyecto IS NOT NULL)`
+
+El aprendizaje del bug APScheduler del 5 de julio (que llevó al fix discovery heartbeat) ahora aparece en el contexto del Advisor incluso si tiene más de 24 horas. Con la ventana anterior, ese registro hubiera sido invisible al siguiente día de crearse.
+
+### Fix 3 — SSH System State: Discovery heartbeat + logs
+
+Se suma al contexto del sistema:
+- `redis-cli GET discovery:last_run` — TTL de la última corrida del agente discovery
+- Logs del contenedor discovery vía `docker inspect | python3 | tail` (evita `{{ }}` que rompen n8n)
+- Secciones separadas con `=== DISCOVERY ===`, `=== LAB MEMORY 24H ===`, `=== TASKS ===`, `=== DIAGNOSTICS ===`
+
+Con esto el Advisor puede detectar por sí solo si discovery está sin correr sin necesitar que SmartDevops lo reporte.
+
+### Fix 5 — 5 nodos nuevos: flujo needs_diagnosis
+
+`IF Needs Diagnosis (IF v2)`: condición `fix_type == 'needs_diagnosis'`  
+`SSH Execute Diagnostic (SSH v1)`: ejecuta `{{ $json.diagnostic_command }}`  
+`Build Diag Body (Code v2)`: construye prompt con output SSH + contexto RAG  
+`Claude Diag (HTTP Request v4)`: Haiku, 800 tokens, respuesta directa sin JSON  
+`Parse Diag Resp (Code v2)`: extrae text + chat_id → Send Advisor
+
+Routing:
+- `IF Needs Fix[1]` → era `Send Advisor`, ahora → `IF Needs Diagnosis`
+- `IF Needs Diagnosis[0]` (true) → `SSH Execute Diagnostic`
+- `IF Needs Diagnosis[1]` (false) → `Send Advisor` (tipo informational/needs_more_info)
+- `Parse Diag Resp` → `Send Advisor`
+
+`Parse Advisor Resp` actualizado: extrae `diagnostic_command` del JSON de Claude y lo incluye en el output del nodo.
+
+### Fix 6 — SQL INSERT lab_memory
+
+Registro `aprendizaje_docker_logs_prohibido` en lab_memory (tipo=aprendizaje, agente=system, proyecto=crypto_agent). Documenta la restricción como lección para que cualquier agente que lea el contexto RAG la encuentre.
+
+**Resultado:** 1 PUT (37 nodos, activo=True) + SQL INSERT 0 1. Todos los patrones encontrados en dry-run.
+
