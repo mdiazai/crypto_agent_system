@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # ── Telegram ──────────────────────────────────────────────────────────────
     telegram_bot_token: SecretStr = Field(...)
     telegram_chat_id: str = Field(...)
+    smartdevops_bot_token: SecretStr = Field(...)
 
     # ── On-Chain APIs ─────────────────────────────────────────────────────────
     glassnode_api_key: SecretStr = Field(default="")   # deprecated — no usado

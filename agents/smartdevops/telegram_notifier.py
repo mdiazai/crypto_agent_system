@@ -31,7 +31,7 @@ class TelegramNotifier:
     def __init__(self) -> None:
         self._base_url = (
             f"https://api.telegram.org/bot"
-            f"{settings.telegram_bot_token.get_secret_value()}"
+            f"{settings.smartdevops_bot_token.get_secret_value()}"
         )
         self._chat_id = settings.telegram_chat_id
 
