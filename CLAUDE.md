@@ -184,6 +184,16 @@ LIMIT 15;
 6. docker ps --format "{{.Names}}" rompe n8n — usar awk
 7. n8n Telegram node typeVersion 1 da 400 Bad Request — usar 1.2
 
+## Estado del sistema (actualizado 2026-07-07)
+- Monitor: 81 tokens activos, ciclo ~5 min
+- ALERT_THRESHOLD: **28** (ajustado 2026-07-07, era 65 → 43 → 28)
+  - Tokens sin chain/contract_address → `executor_agent.no_chain_skip` (intencional, Fix 2 anti-stablecoin)
+  - Tokens con chain: max detection_score ~30, composite_score por ciclo fluctúa cerca del threshold
+  - Tokens de alto score (RTM 64.5, ROPRA 58.06, RCRCL 59.5) son PoW nativos sin contrato EVM
+  - Próximo trade esperado cuando ROBO u otro token con chain supere 28 en un ciclo
+- Último trade: 2026-07-01 (RCLOI/ROPRA/RFLHY con scores 61-67, pre-fix anti-stablecoin)
+- paper_trading: true (todos los trades son simulados)
+
 ## Reglas
 - Nunca modificar /opt/crypto_agent_system sin diagnóstico previo
 - Cada paso requiere confirmación antes de continuar
