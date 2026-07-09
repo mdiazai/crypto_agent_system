@@ -4053,3 +4053,111 @@ Registro `aprendizaje_docker_logs_prohibido` en lab_memory (tipo=aprendizaje, ag
 
 **Resultado:** 1 PUT (37 nodos, activo=True) + SQL INSERT 0 1. Todos los patrones encontrados en dry-run.
 
+---
+
+## Sesión 2026-07-08 — Separación de tokens Telegram + fix SmartDevops "Agentes sin actividad"
+
+### Contexto
+
+Dos problemas entrelazados:
+1. El sistema usaba el token del SmartDevops bot (`8141614556`) como `TELEGRAM_BOT_TOKEN` global — el scorer enviaba alertas de trading con el bot equivocado.
+2. SmartDevops enviaba repetidamente alertas CRITICAL "Agentes sin actividad" al Telegram.
+
+### Parte 1 — Separación de TELEGRAM_BOT_TOKEN
+
+**Problema:** `.env` tenía `TELEGRAM_BOT_TOKEN=8141614556` (SmartDevops bot). El scorer, learner y otros agentes usaban ese token para alertas. Debería ser el CryptoAgentBot (`8766465123`). Pero cambiar `TELEGRAM_BOT_TOKEN` rompía SmartDevops, que usa el mismo campo para enviar los botones `sd_approve`/`sd_ignore` — si el bot cambia, n8n deja de recibir los callbacks.
+
+**Fix (dos partes):**
+
+1. `shared/config/settings.py` — campo nuevo:
+```python
+smartdevops_bot_token: SecretStr = Field(...)
+```
+
+2. `agents/smartdevops/telegram_notifier.py` — cambio en `__init__`:
+```python
+# antes:
+f"{settings.telegram_bot_token.get_secret_value()}"
+# después:
+f"{settings.smartdevops_bot_token.get_secret_value()}"
+```
+
+3. `.env` en VPS — dos cambios:
+```
+TELEGRAM_BOT_TOKEN=8766465123:AAEgGeCp-ZIEfmB2uPUpwDfBRRHgJNCU_5U   # CryptoAgentBot
+SMARTDEVOPS_BOT_TOKEN=8141614556:AAEbY07qhTW0idh5BaH5fMjv2JPt2PY1mV0  # SmartDevops
+```
+
+**Lección nueva descubierta:** `docker restart` NO re-lee `.env`. El container usa la config de cuando fue creado. Para picar cambios de variables hay que:
+```bash
+docker stop NAME && docker rm NAME
+docker run -d --name NAME --network crypto_agent_network \
+  --restart unless-stopped --env-file /opt/crypto_agent_system/.env \
+  -v ... IMAGE CMD
+```
+
+**Lección adicional:** SmartDevops, scorer y learner NO están en `docker-compose.yml` — son containers standalone creados con `docker run`. `docker compose up smartdevops` da `no such service`.
+
+### Parte 2 — Fix SmartDevops "Agentes sin actividad"
+
+**Síntoma:** SmartDevops enviaba alerta CRITICAL cada 30 minutos: "Agentes sin actividad".
+
+**Diagnóstico:** La cadena de causas fue:
+
+1. Al recrear el container del scorer con `--env-file`, se usó la imagen existente `crypto_agent_system-scorer:latest`.
+2. Esa imagen había sido construida en un momento en que `requirements.txt` era la **versión mínima** (solo asyncpg, apscheduler, anthropic, python-telegram-bot, python-dotenv) — sin `pydantic_settings`, sin `sentry-sdk`.
+3. `agents/scorer/__main__.py` línea 2: `import sentry_sdk` — import incondicional. El container crasheaba inmediatamente con `ModuleNotFoundError: No module named 'sentry_sdk'`.
+4. Scorer en restart loop → no escribía `scorer:heartbeat` en Redis → SmartDevops detectaba `scorer_heartbeat: missing` → Claude diagnosticaba severity=critical → alerta Telegram.
+
+**Root cause en cadena:**
+```
+requirements.txt mínimo → imagen sin deps → sentry_sdk crash →
+scorer restart loop → heartbeat Redis vacío → SmartDevops alerta CRITICAL
+```
+
+**Fix en tres pasos:**
+
+**Paso 1 — import condicional** en `agents/scorer/__main__.py` y `agents/learner/__main__.py`:
+```python
+try:
+    import sentry_sdk
+except ImportError:
+    sentry_sdk = None
+# ...
+if settings.sentry_dsn and sentry_sdk:
+    sentry_sdk.init(...)
+```
+*(El mismo fix ya aplicado a smartdevops en esta sesión.)*
+
+**Paso 2 — Restaurar requirements.txt completo** desde git:
+```bash
+git show c7e3386:requirements.txt > /opt/crypto_agent_system/requirements.txt
+```
+El requirements.txt en disco era el mínimo (para lab agents). El original completo incluye pydantic-settings, sqlalchemy, redis, sentry-sdk[fastapi], numpy, scikit-learn, etc.
+
+**Paso 3 — Rebuild con `--no-cache`:**
+```bash
+nohup docker build --no-cache -f agents/scorer/Dockerfile -t crypto_agent_system-scorer:latest . \
+  > /tmp/build_scorer.log 2>&1 &
+nohup docker build --no-cache -f agents/learner/Dockerfile -t crypto_agent_system-learner:latest . \
+  > /tmp/build_learner.log 2>&1 &
+```
+
+**Por qué `--no-cache`:** Un build previo sin `--no-cache` produjo el mismo image hash (535MB) aunque requirements.txt había cambiado. Docker tenía cacheada la capa `RUN pip install` del build anterior. Con `--no-cache` el nuevo image tiene 2.36GB y pasa `import pydantic_settings`.
+
+**Por qué `nohup`:** Los builds de imágenes grandes tardan ~7 min. La SSH se cae durante ese tiempo. Con `nohup`, el proceso continúa en el VPS aunque se pierda la conexión. Se verifica con `tail /tmp/build_SERVICE.log`.
+
+**Verificación final:**
+```
+scorer:heartbeat TTL=127 ✅ (Redis)
+TELEGRAM_BOT_TOKEN=8766465123 en scorer ✅ (docker inspect)
+SMARTDEVOPS_BOT_TOKEN=8141614556 en smartdevops ✅ (docker inspect)
+smartdevops_agent.sent en logs ✅
+```
+
+**Commits:**
+- `5369f05` — fix: separate SMARTDEVOPS_BOT_TOKEN from main TELEGRAM_BOT_TOKEN
+- `ecdfaa7` — fix: make sentry_sdk import conditional in scorer and learner
+
+**Deuda técnica identificada:** detector, discovery, executor, monitor también tienen `import sentry_sdk` directo. Si se reconstruyen sus imágenes (que actualmente sí tienen sentry_sdk), crashearán. Aplicar el mismo fix antes de cualquier rebuild.
+
