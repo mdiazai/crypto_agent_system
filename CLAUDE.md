@@ -1,5 +1,5 @@
 # CLAUDE.md — 11mkeys_lab
-## Actualizado: 2026-07-06
+## Actualizado: 2026-07-08
 
 ## Descripción
 Stack de automatización del 11Mkeys AI Lab.
@@ -37,8 +37,11 @@ Estadio 2 operativo desde 2026-07-04: agentes coordinados via Strategy Advisor.
 
 ### Build y deploy
 - Build: `docker build -f /opt/crypto_agent_system/agents/SERVICE/Dockerfile -t crypto_agent_system-SERVICE:latest /opt/crypto_agent_system`
+- Build largo (numpy/sklearn): usar `nohup ... > /tmp/build_SERVICE.log 2>&1 &` para sobrevivir drops SSH
+- Build con deps cambiadas: SIEMPRE `--no-cache` — Docker puede usar cache stale aunque requirements.txt cambió
 - Restart: `docker restart crypto_agent_system-SERVICE-1`
 - NUNCA usar `docker compose build` — el compose tiene error de validación en v5.1.3
+- IMPORTANTE: smartdevops, scorer y learner NO están en docker-compose.yml — son containers standalone
 
 ### n8n
 - Modelo Claude: siempre `claude-sonnet-4-6` (claude-sonnet-4-20250514 devuelve 404)
@@ -103,10 +106,11 @@ n8n · Claude API · Telegram bots · PostgreSQL · Redis · Docker · Python ·
 
 ### SmartDevops Agent
 - Bot: @ElevenMkeys_SmartDevops_bot
-- Token: 8141614556:AAEbY07qhTW0idh5BaH5fMjv2JPt2PY1mV0
+- Token: 8141614556:AAEbY07qhTW0idh5BaH5fMjv2JPt2PY1mV0 — en .env como SMARTDEVOPS_BOT_TOKEN
 - Webhook: https://n8n.11mkeys.ai/webhook/4e2d5c25-11ce-476c-85c7-d45f847f168c/webhook
 - Función: Ciclo 30min, Docker API + PostgreSQL + Redis, propone fixes con sd_approve/sd_ignore
 - Historial en: diagnostics_log (PostgreSQL)
+- Container standalone (no en docker-compose.yml) — recrear con docker run + --env-file
 
 ### Focus Guardian
 - Bot: @ElevenMkeys_Focus_bot
@@ -183,8 +187,15 @@ LIMIT 15;
 5. crypto_agent rama main tiene historial divergente — nunca git reset --hard
 6. docker ps --format "{{.Names}}" rompe n8n — usar awk
 7. n8n Telegram node typeVersion 1 da 400 Bad Request — usar 1.2
+8. docker restart NO re-lee .env — para picar cambios de variables hay que
+   docker stop + rm + run --env-file /opt/crypto_agent_system/.env
+9. Docker build cache ignora cambios en requirements.txt — usar --no-cache
+   cuando se restaura o modifica requirements.txt; verificar con docker run --rm IMAGE pip list
+10. import sentry_sdk directo crashea si el package falta — siempre usar
+    try/except ImportError con sentry_sdk=None; afecta detector/discovery/executor/monitor
+    si se reconstruyen sus imágenes
 
-## Estado del sistema (actualizado 2026-07-07)
+## Estado del sistema (actualizado 2026-07-08)
 - Monitor: 81 tokens activos, ciclo ~5 min
 - ALERT_THRESHOLD: **28** (ajustado 2026-07-07, era 65 → 43 → 28)
   - Tokens sin chain/contract_address → `executor_agent.no_chain_skip` (intencional, Fix 2 anti-stablecoin)
@@ -193,6 +204,16 @@ LIMIT 15;
   - Próximo trade esperado cuando ROBO u otro token con chain supere 28 en un ciclo
 - Último trade: 2026-07-01 (RCLOI/ROPRA/RFLHY con scores 61-67, pre-fix anti-stablecoin)
 - paper_trading: true (todos los trades son simulados)
+
+### Separación de tokens Telegram (completada 2026-07-08)
+- `TELEGRAM_BOT_TOKEN` = 8766465123 (CryptoAgentBot) — scorer, learner, monitor, alertas de trading
+- `SMARTDEVOPS_BOT_TOKEN` = 8141614556 (SmartDevops bot) — botones sd_approve/sd_ignore
+- Commits: `5369f05` (separación) + `ecdfaa7` (sentry fix scorer/learner) en rama main
+
+### Containers scorer/learner/smartdevops (reconstruidos 2026-07-08)
+- Imágenes reconstruidas con `--no-cache` desde requirements.txt completo (restaurado de git c7e3386)
+- Recreados con `docker run --env-file` para picar nuevas variables de entorno
+- scorer:heartbeat activo en Redis (TTL ~127s confirmado)
 
 ## Reglas
 - Nunca modificar /opt/crypto_agent_system sin diagnóstico previo
