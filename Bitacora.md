@@ -4161,3 +4161,86 @@ smartdevops_agent.sent en logs ✅
 
 **Deuda técnica identificada:** detector, discovery, executor, monitor también tienen `import sentry_sdk` directo. Si se reconstruyen sus imágenes (que actualmente sí tienen sentry_sdk), crashearán. Aplicar el mismo fix antes de cualquier rebuild.
 
+---
+
+## Sesión 2026-07-09 — QA Anexo A2: Verificación de casos de uso
+
+Ejecución del documento `verificacion_y_reporte_casos_uso.md` (Anexo A2 del Plan Fundacional v1.3).
+17 casos verificados vía queries directas a PostgreSQL, Redis, n8n API y Docker.
+
+### Prerequisitos
+
+- Containers activos: 14 UP (monitor, scorer, learner, executor, discovery, detector, orchestrator, smartdevops, focus_guardian, n8n, dashboard, grafana, postgres, redis)
+- lab_memory: 34 registros
+- n8n: HTTP 200 ✅
+
+### Resultados por categoría
+
+**Categoría 1 — Operación diaria**
+
+| Caso | Estado | Observación |
+|---|---|---|
+| 1.1 /estado | ⚠️ PARCIAL | proyectos=0 — PM Agent usa `status='activo'` pero DB tiene `status='active'` |
+| 1.2 /tareas | ⚠️ PARCIAL | QA doc desactualizado: `lab_tasks` usa `project_id` FK, no columna texto `proyecto` |
+| 1.3 /nueva | ⚠️ NO VERIF. | webhook requiere firma Telegram, no testeable con curl directo |
+| 1.4 /done | ⚠️ NO VERIF. | idem |
+| 1.5 /ingreso | ✅ OK | 2 registros `finance_agent` en lab_memory con formato `{proyecto,monto,descripcion,fecha}` |
+| 1.6 /finanzas | ⚠️ NO VERIF. | requiere interacción Telegram real |
+
+**Categoría 2 — Memoria**
+
+| Caso | Estado | Observación |
+|---|---|---|
+| 2.1 /memoria hoy | ✅ OK | INSERT funciona, SELECT filtra por `creado_en > NOW() - 24h`, 3 registros |
+| 2.2 /memoria proyecto | ✅ OK | `proyecto='crypto_agent'` devuelve 8 registros vigentes |
+| 2.3 /memoria clave | ✅ OK | `lab_arquitectura_vps` existe con contenido correcto |
+
+**Categoría 3 — Diagnóstico**
+
+| Caso | Estado | Observación |
+|---|---|---|
+| 3.1 Advisor | ✅ OK | Activo, 37 nodos — incluye `IF Needs Diagnosis`, `SSH Execute Diagnostic`, `Claude Diag`, `Parse Diag Resp` |
+| 3.2 Task Runner | ⚠️ NO VERIF. | Workflow activo; flujo completo requiere interacción real |
+| 3.3 /run + blacklist | ⚠️ NO VERIF. | Webhook requiere firma Telegram |
+
+**Categoría 4 — Creatividad y estrategia**
+
+| Caso | Estado | Observación |
+|---|---|---|
+| 4.1 Monkey Brain | ✅ OK | Workflows activos; último insight en lab_memory: 2026-07-04 |
+| 4.2 /evaluar | ✅ OK | Nodos `Claude Evaluar` + `SSH Write Eval` presentes; últimas evaluaciones: 2026-07-04 |
+
+**Categoría 5 — Health check**
+
+| Caso | Estado | Observación |
+|---|---|---|
+| 5.1 Containers UP | ✅ OK | 14 containers corriendo |
+| 5.2 Discovery heartbeat | ✅ OK | `discovery:last_run = "ok"` en Redis |
+| 5.3 CryptoAgentBot | ✅ OK | `TELEGRAM_BOT_TOKEN=8766465123` → `@mi_crypto_agent_bot` ✅ |
+| 5.4 SmartDevops | ✅ OK | `severity=ok` desde ciclo 01:28 UTC; `diagnostics_log` con 3 registros recientes |
+| 5.5 Dashboard | ✅ OK | HTTP 200 en `167.88.33.68:8001` |
+| 5.6 Executor | ✅ OK | Running; max detection_score: DN=34.66 (por encima de ALERT_THRESHOLD=28) |
+| 5.7 Weekly Board | ❌ FALLA | `POST /api/v1/workflows/{id}/run` devuelve 405 — no triggereable via REST API |
+
+**Totales: 10 ✅ | 1 ❌ | 8 ⚠️**
+
+### Discrepancias de schema encontradas (QA doc desactualizado)
+
+El documento de QA fue escrito con un schema que ya no existe en la DB actual:
+
+1. **`lab_tasks.proyecto`** — no existe. La tabla usa `project_id` (FK a `lab_projects.id`). Queries que usen `proyecto` directamente fallan con `column does not exist`.
+2. **`lab_projects.status`** — los valores reales son `'active'` (no `'activo'`). El nodo `SSH Read Estado` del PM Agent probablemente usa `status='activo'` → devuelve 0 proyectos.
+3. **`diagnostics_log.created_at`** — no existe. La columna real es `run_at`.
+4. **`lab_tasks.status`** — valores reales: `'open'`, `'done'` (no `'pendiente'`, `'done'`).
+
+### Fix prioritario identificado
+
+**Bug #2** es el único que afecta UX directamente: `/estado` en Telegram probablemente muestra `Proyectos activos: 0` porque el PM Agent usa `WHERE status='activo'`. 
+
+Fix: en el workflow `HlY3gLWuJowyITB9`, nodo `SSH Read Estado`, cambiar `status='activo'` → `status='active'` en la query de `lab_projects`. No aplicado esta sesión — requiere verificar el mensaje real de `/estado` en Telegram antes de decidir si es necesario.
+
+### Registros generados
+
+- `lab_memory` clave: `qa_casos_uso_20260709` (tipo=operativa, agente=claude_code)
+- Reporte enviado a `chat_id=6517856768` via PM Bot
+
