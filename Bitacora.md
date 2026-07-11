@@ -4244,3 +4244,52 @@ Fix: en el workflow `HlY3gLWuJowyITB9`, nodo `SSH Read Estado`, cambiar `status=
 - `lab_memory` clave: `qa_casos_uso_20260709` (tipo=operativa, agente=claude_code)
 - Reporte enviado a `chat_id=6517856768` via PM Bot
 
+---
+
+## Sesión 2026-07-10/11 — Fixes Strategy Advisor + PM Agent schema
+
+### Contexto
+Diagnóstico y corrección de tres bugs en workflows n8n. Todos los fixes aplicados via PUT a la API de n8n — no requieren deploy de containers.
+
+### Fix 1 — PM Agent Q Tareas: p.name → p.nombre
+- **Workflow:** HlY3gLWuJowyITB9 (PM Agent)
+- **Nodo:** Q Tareas (SSH)
+- **Problema:** `/tareas` mostraba nombre largo de proyecto ("Crypto Agent System") en vez del key corto ("crypto_agent")
+- **Causa:** `lab_projects` tiene AMBAS columnas `name` y `nombre`; la query usaba `p.name` (display name)
+- **Fix:** `COALESCE(p.name,'(general)')` → `COALESCE(p.nombre,'(general)')`
+
+### Fix 2 — Strategy Advisor Claude Diag: sendHeaders None → True
+- **Workflow:** 7Ohb4fekhWkgfMVE (Strategy Advisor)
+- **Nodo:** Claude Diag (HTTP Request → api.anthropic.com)
+- **Problema:** "Authorization failed - please check your credentials" en CADA ejecución que requería diagnóstico
+- **Causa:** `sendHeaders: None` en el nodo — los headers (`x-api-key`, `anthropic-version`, `content-type`) nunca se enviaban; Anthropic respondía 401
+- **Diagnóstico:** Comparando Claude Advisor (sendHeaders: True, funcionaba) vs Claude Diag (sendHeaders: None, fallaba en 245ms)
+- **Fix:** `sendHeaders: True` en nodo Claude Diag
+- **Patrón:** Toda ejecución con `needs_diagnosis: true` fallaba; las que tomaban branch informacional sin diagnóstico eran exitosas
+
+### Fix 3 — Strategy Advisor Send Advisor: Bad request Telegram Markdown
+- **Workflow:** 7Ohb4fekhWkgfMVE (Strategy Advisor)
+- **Nodos:** Parse Advisor Resp (Code) + Send Advisor (Telegram)
+- **Problema:** "Bad request - please check your parameters" al enviar respuesta de Claude a Telegram
+- **Causa raíz (código fuente n8n Telegram node):**
+  ```javascript
+  if (!additionalFields.parse_mode) {
+      additionalFields.parse_mode = 'Markdown';  // forzado siempre
+  }
+  if (typeVersion >= 1.1 && appendAttribution === undefined) {
+      appendAttribution = true;  // agrega firma en Markdown al mensaje
+  }
+  ```
+  Si el texto de Claude contenía `**`, `_` sin cerrar u otros chars Markdown → "can't parse entities"
+- **Fixes:**
+  1. `Parse Advisor Resp`: escape `**` → `*` y headers `#` antes del return
+  2. `Send Advisor` additionalFields: `{}` → `{"appendAttribution": false}` para evitar la firma Markdown de n8n
+
+### Estado post-fix
+- Strategy Advisor respondiendo correctamente a mensajes en Telegram ✅
+- Path de diagnóstico (Claude Diag) desbloqueado — pendiente de validar en próximo ciclo que requiera diagnóstico
+- PM Agent `/tareas` muestra key de proyecto en vez de nombre largo ✅
+
+### Lección aprendida
+n8n Telegram node (cualquier typeVersion) **siempre** fuerza `parse_mode: "Markdown"` si no está explícitamente seteado. Si el texto tiene Markdown inválido (como `**` que no es soportado en Telegram Markdown v1), falla con "Bad request". Siempre verificar `appendAttribution: false` en workflows con respuestas de Claude.
+
