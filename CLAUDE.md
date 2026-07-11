@@ -194,8 +194,17 @@ LIMIT 15;
 10. import sentry_sdk directo crashea si el package falta — siempre usar
     try/except ImportError con sentry_sdk=None; afecta detector/discovery/executor/monitor
     si se reconstruyen sus imágenes
+11. n8n Telegram node SIEMPRE fuerza parse_mode=Markdown aunque additionalFields={} —
+    si el texto tiene ** o _ sin cerrar → "Bad request: can't parse entities".
+    Fix: en additionalFields poner {"appendAttribution": false} y en el nodo Code
+    previo escapar `**` → `*` y remover headers `#` antes de enviar.
+    Detectado 2026-07-10 inspeccionando GenericFunctions.js del node.
+12. n8n HTTP Request node: sendHeaders debe ser True explícitamente — si queda en None,
+    los headerParameters (x-api-key, etc.) no se envían aunque estén definidos.
+    Causa "Authorization failed" inmediato (< 300ms). Comparar siempre vs nodo equivalente
+    que sí funciona para detectar la diferencia.
 
-## Estado del sistema (actualizado 2026-07-08)
+## Estado del sistema (actualizado 2026-07-10)
 - Monitor: 81 tokens activos, ciclo ~5 min
 - ALERT_THRESHOLD: **28** (ajustado 2026-07-07, era 65 → 43 → 28)
   - Tokens sin chain/contract_address → `executor_agent.no_chain_skip` (intencional, Fix 2 anti-stablecoin)
