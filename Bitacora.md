@@ -4293,3 +4293,52 @@ Diagnóstico y corrección de tres bugs en workflows n8n. Todos los fixes aplica
 ### Lección aprendida
 n8n Telegram node (cualquier typeVersion) **siempre** fuerza `parse_mode: "Markdown"` si no está explícitamente seteado. Si el texto tiene Markdown inválido (como `**` que no es soportado en Telegram Markdown v1), falla con "Bad request". Siempre verificar `appendAttribution: false` en workflows con respuestas de Claude.
 
+---
+
+## Sesión 2026-07-11 — Strategy Advisor path diagnóstico completo + diagnóstico scorer
+
+### Contexto
+Continuación de la sesión anterior. El Strategy Advisor fallaba en el path de diagnóstico (cuando Claude Advisor detecta que necesita ejecutar un comando SSH adicional). Los fixes de Telegram Markdown y sendHeaders estaban aplicados, pero el path completo aún no se había validado.
+
+### Fix 4 — Claude Diag sendBody ausente
+- **Workflow:** 7Ohb4fekhWkgfMVE (Strategy Advisor)
+- **Nodo:** Claude Diag (HTTP Request a api.anthropic.com)
+- **Problema:** "Bad request - please check your parameters" — Anthropic devolvía 400
+- **Causa raíz:** `sendBody` ausente en el nodo. n8n tiene `sendHeaders` y `sendBody` como flags **independientes**. Sin `sendBody: True` el POST se envía sin body aunque `specifyBody` y `body` estén configurados.
+- **Detectado:** comparando Claude Advisor (que funciona) vs Claude Diag — Claude Advisor tenía `sendBody: True`, Claude Diag no.
+- **Fix:** PUT vía API con `sendBody: True` agregado al nodo Claude Diag.
+- **Validación:** Claude Diag pasó de 1 seg (fast-fail 400) a 6 seg (respuesta real de Haiku) ✅
+
+### Fix 5 — Parse Diag Resp: código JS con $ roto
+- **Workflow:** 7Ohb4fekhWkgfMVE (Strategy Advisor)
+- **Nodo:** Parse Diag Resp (Code)
+- **Problema:** "Unexpected token '.'" — `$json` y `$('Build Diag Body')` habían sido reducidos a `.` y `.(...)` en el código guardado
+- **Causa raíz:** Al pasar el código JS por SSH heredoc `<< 'PYEOF'`, el shell expandió los `$` aunque el heredoc era single-quoted. Los `$json` → `""` (var vacía) y `$('Build Diag Body')` → salida del comando `Build Diag Body` (no existe → vacío).
+- **Fix:** Escribir el JS a `/tmp/parse_diag_code.js` vía `cat << 'RAWEOF'` (heredoc single-quoted en VPS remoto), usando **double quotes** en el JS para evitar conflictos con el quoting. Luego PUT con Python leyendo el archivo (sin pasar por heredoc).
+- **Código guardado correctamente:** `$json` y `$("Build Diag Body")` preservados ✅
+
+### Validación path completo
+Exec 623: `workflow.success` — primera ejecución exitosa del path de diagnóstico completo:
+`Telegram Trigger → SSH System State → SSH Ctx Advisor → Claude Advisor → Parse Advisor Resp → IF Needs Diagnosis → SSH Execute Diagnostic → Build Diag Body → Claude Diag → Parse Diag Resp → Send Advisor ✅`
+
+### Diagnóstico scorer (issue reportado vía Advisor)
+El Advisor diagnosticó correctamente que el scorer "no parece estar procesando". Diagnóstico manual confirmó:
+
+| Check | Resultado |
+|---|---|
+| Container scorer | Up 2 days, RestartCount: 0 ✅ |
+| scorer:heartbeat Redis | TTL ~134s, timestamp actual ✅ |
+| scorer_queue | Vacía (0 items) — normal, usa pub/sub no queue |
+| last_checked en crypto_agent | 2026-07-01 — **DB equivocada** |
+| last_checked en lab_11mkeys | 2026-07-11 20:32 UTC — **actualizado ahora mismo** ✅ |
+| Monitor ciclo | Cada 5 min, published: 23 tokens ✅ |
+| channel:monitor:pump_signal | 1 suscriptor (detector) activo ✅ |
+
+**Conclusión:** El sistema funcionaba perfectamente. La confusión: se chequeó `crypto_agent.token_candidates` (DB legacy congelada el 2026-07-01, día de la migración) en vez de `lab_11mkeys.token_candidates` (DB activa con 1258 filas, 25 activos).
+
+### Correcciones al CLAUDE.md
+- `detection_scores` no existe como tabla — los scores están en `token_candidates.detection_score`
+- `crypto_agent.token_candidates` = legacy congelada; `lab_11mkeys.token_candidates` = activa
+- Lección 13: `sendBody: True` independiente de `sendHeaders: True`
+- Lección 14: código JS con `$` via SSH heredoc → usar cat file + SCP + Python PUT
+

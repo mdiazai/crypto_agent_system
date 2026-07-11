@@ -1,5 +1,5 @@
 # CLAUDE.md — 11mkeys_lab
-## Actualizado: 2026-07-08
+## Actualizado: 2026-07-11
 
 ## Descripción
 Stack de automatización del 11Mkeys AI Lab.
@@ -17,7 +17,9 @@ Estadio 2 operativo desde 2026-07-04: agentes coordinados via Strategy Advisor.
 - DB principal: lab_11mkeys (migrada desde crypto_agent el 2026-07-01)
 - DB legacy: crypto_agent (mantener como backup hasta drop explícito)
 - Tablas principales: lab_memory, lab_tasks, lab_projects, focus_checkins,
-  diagnostics_log, token_candidates, detection_scores
+  diagnostics_log, token_candidates (1258 filas, 25 activos en lab_11mkeys)
+- NOTA: detection_scores no existe como tabla separada — los scores están en token_candidates.detection_score
+- crypto_agent.token_candidates quedó congelada en 2026-07-01 (pre-migración) — NO confundir con lab_11mkeys
 - SIEMPRE usar -d lab_11mkeys en queries de agentes del Lab
 - NUNCA dropear crypto_agent sin aprobación explícita de Marce
 
@@ -203,8 +205,16 @@ LIMIT 15;
     los headerParameters (x-api-key, etc.) no se envían aunque estén definidos.
     Causa "Authorization failed" inmediato (< 300ms). Comparar siempre vs nodo equivalente
     que sí funciona para detectar la diferencia.
+13. n8n HTTP Request node: sendBody también debe ser True explícitamente para POST con body.
+    sendHeaders y sendBody son flags independientes. Sin sendBody=True el POST llega sin body
+    → Anthropic devuelve 400 "Bad request". El nodo puede tener specifyBody+body correctos
+    y aun así no enviar nada si sendBody está ausente.
+14. Pasar código JS con $ por SSH heredoc: los $ se expanden por el shell aunque uses
+    << 'MARKER' si el código está en la sección quoted del comando SSH. Solución: escribir
+    el JS a un archivo vía cat << 'RAWEOF' (heredoc single-quoted remoto) usando solo
+    double-quotes en el JS, luego aplicar PUT con Python leyendo el archivo.
 
-## Estado del sistema (actualizado 2026-07-10)
+## Estado del sistema (actualizado 2026-07-11)
 - Monitor: 81 tokens activos, ciclo ~5 min
 - ALERT_THRESHOLD: **28** (ajustado 2026-07-07, era 65 → 43 → 28)
   - Tokens sin chain/contract_address → `executor_agent.no_chain_skip` (intencional, Fix 2 anti-stablecoin)
