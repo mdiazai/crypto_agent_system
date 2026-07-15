@@ -4342,3 +4342,85 @@ El Advisor diagnosticó correctamente que el scorer "no parece estar procesando"
 - Lección 13: `sendBody: True` independiente de `sendHeaders: True`
 - Lección 14: código JS con `$` via SSH heredoc → usar cat file + SCP + Python PUT
 
+
+---
+
+## Sesión 2026-07-13/14 — Bug crítico de webhooks Telegram en n8n + migración de 5 bots
+
+### Contexto
+Durante el desarrollo del Narrative Swing Module (proyecto independiente, agents/narrative/ en
+crypto_agent_system) se construyó un workflow n8n para manejar botones Aprobar/Rechazar de señales
+de trading vía Telegram, agregado como rama nueva del workflow PM Agent existente. Al probarlo con
+clicks reales, los botones no respondían pese a que el workflow mostraba `active: true`.
+
+### Bug descubierto — n8n Telegram Trigger no re-registra el webhook
+`getWebhookInfo` de Telegram mostraba url vacía o, tras registrar manualmente, 403 "secret inválido".
+Se probaron sin éxito, en este orden: toggle activate/deactivate vía API (x4), toggle manual en la UI,
+editar el nodo trigger a mano, reiniciar el container n8n completo, regenerar el webhookId del nodo,
+duplicar el workflow entero con un ID nuevo. Inspección directa de `database.sqlite` de n8n (con
+`-wal` incluido, crítico para no leer estado stale) confirmó: la ruta interna (`webhook_entity`) se
+crea correctamente, pero **n8n nunca llama a `setWebhook` de Telegram** — bug silencioso, sin logs,
+reproducible en n8n 2.22.5.
+
+Marce identificó la causa raíz revisando `GenericFunctions.ts` de n8n: el `secret_token` que n8n
+valida en cada request es determinístico (`{workflowId}_{nodeId}` del nodo trigger), pero nunca se
+lo comunica a Telegram automáticamente. Registrar el webhook a mano con ese secret calculado
+(Opción 1) funcionó y se confirmó con un click real — pero quedaba frágil: el secret depende de IDs
+internos de n8n que cambian si el workflow se vuelve a tocar.
+
+### Solución definitiva — Opción 2: Webhook genérico + secret propio
+Se reemplazó `n8n-nodes-base.telegramTrigger` por `n8n-nodes-base.webhook` (path fijo legible,
+`responseMode: onReceived`) + un nodo Code que valida `x-telegram-bot-api-secret-token` contra un
+secret propio generado con `openssl rand -hex 24` y guardado en `.env`. El registro con Telegram se
+hace a mano una sola vez (`setWebhook` con nuestro secret) y ya no depende de que n8n vuelva a
+llamarlo — control total, nada atado a IDs internos de n8n.
+
+**Detalle importante detectado en el camino:** el nodo Code de validación debe quedarse con el
+**nombre original** del Telegram Trigger que reemplaza. Otros nodos del workflow pueden referenciarlo
+por nombre vía `$('Telegram Trigger').json...` (bypaseando el grafo de conexiones), y esas referencias
+se rompen si se renombra. Se detectó en Code Agent: el nodo "Send a text message" fallaba con
+`ExpressionError: Referenced node doesn't exist` hasta corregir el nombre. Se verificó por regex que
+los otros 4 workflows no tenían este patrón de referencia directa antes de darlos por buenos.
+
+Documentado completo como Lección 15 en CLAUDE.md (11mkeys_lab).
+
+### Migración aplicada — 5 de 6 bots con Telegram Trigger
+Orden por criticidad (definido por Marce), cada uno con secret propio en `.env` y test real
+(mensaje + callback si aplica) antes de pasar al siguiente:
+
+| Bot | Workflow | Webhook nuevo | Secret (.env) |
+|---|---|---|---|
+| PM Agent | XcHapUoJvZvl8kLs (99 nodos) | `/webhook/pm-agent-telegram` | `PM_WEBHOOK_SECRET` |
+| Strategy Advisor | 7Ohb4fekhWkgfMVE (38 nodos) | `/webhook/advisor-telegram` | `ADVISOR_WEBHOOK_SECRET` |
+| Monkey Brain | uBR0ICIj2ZtLUCvk (50 nodos) | `/webhook/monkeybrain-telegram` | `MONKEYBRAIN_WEBHOOK_SECRET` |
+| SmartDevops Agent | qEN2uvjywgpB5jaN (9 nodos) | `/webhook/smartdevops-telegram` | `SMARTDEVOPS_WEBHOOK_SECRET` |
+| Code Agent | YJSrUZ9I6wuLt79v (26 nodos) | `/webhook/codeagent-telegram` | `CODEAGENT_WEBHOOK_SECRET` |
+
+Task Runner (2vlG13sLx4bXAY86) ya usaba Webhook genérico desde el inicio — no necesitó migración.
+
+### Hallazgo colateral — Monkey Advisor - Consultas archivado
+Al revisar Code Agent se encontró que compartía bot Telegram con "Monkey Advisor - Consultas"
+(ambos credencial `Monkey Advisor Bot`). Un bot solo admite un webhook activo — el real quedaba
+apuntando a Code Agent, así que Monkey Advisor - Consultas **nunca recibió tráfico real**,
+independientemente de esta sesión. Se auditaron sus 4 nodos: bot Q&A educativo simple, sin
+funcionalidad no cubierta por Monkey Brain, y construido sobre convenciones ya obsoletas
+(`docker compose exec/ps`, DB `crypto_agent` en vez de `lab_11mkeys`). Se decidió archivar:
+- Backup completo: `/opt/11mkeys_lab/archive/monkey_advisor_consultas_20260713.json`
+- Workflow eliminado de n8n
+- Registrado en `lab_memory` (clave `monkey_advisor_consultas_archivado`)
+
+### Estado post-fix
+- Los 5 bots migrados responden a mensajes y/o callbacks reales, confirmado con clicks/mensajes
+  reales de Marce en cada uno, no solo tests sintéticos ✅
+- Narrative Swing Module: botones Aprobar/Rechazar operativos de punta a punta (Telegram → n8n →
+  Postgres → Telegram), validado con trade paper real (`ZTEST1`, matemática de entry/stop/target
+  correcta) y luego con un símbolo real del universo ✅
+- Bug adicional encontrado y corregido en el camino: `psql -t -A` deja pasar las líneas de status
+  (`UPDATE 0`, `INSERT 0 0`) como si fueran datos — hacía que un símbolo inexistente se reportara
+  como éxito. Fix: agregar `-q` a las queries de escritura del workflow de narrative.
+- CLAUDE.md (11mkeys_lab) actualizado: Lección 15, webhooks/secrets de cada bot, sección Monkey
+  Advisor archivada.
+
+### Lección aprendida
+Ver Lección 15 en CLAUDE.md — resumen: nunca usar `n8n-nodes-base.telegramTrigger` en este entorno;
+usar Webhook genérico + secret propio desde el arranque para cualquier bot nuevo.

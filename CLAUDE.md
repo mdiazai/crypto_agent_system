@@ -1,5 +1,5 @@
 # CLAUDE.md — 11mkeys_lab
-## Actualizado: 2026-07-11
+## Actualizado: 2026-07-14
 
 ## Descripción
 Stack de automatización del 11Mkeys AI Lab.
@@ -70,28 +70,40 @@ n8n · Claude API · Telegram bots · PostgreSQL · Redis · Docker · Python ·
 - SSL: Let's Encrypt, vence 2026-08-30, renovación automática
 - Nginx reverse proxy a localhost:5678
 - N8N_API_KEY guardada en /opt/crypto_agent_system/.env
+- PATRÓN OBLIGATORIO para bots nuevos: nunca n8n-nodes-base.telegramTrigger —
+  usar Webhook genérico + secret propio (ver Lección 15). Webhooks y secrets
+  vigentes de cada bot están en su sección dentro de "Agentes operativos".
 
 ## Agentes operativos — Bots y Workflows
 
 ### Strategy Advisor
 - Bot: @ElevenMkeys_Advisor_bot
-- Workflows: 7Ohb4fekhWkgfMVE (Telegram) + mDjJw4IIFJhnZq1j (notify) + mB0dJy17gxM4V3FN (report)
+- Workflows: 7Ohb4fekhWkgfMVE (Telegram, 38 nodos) + mDjJw4IIFJhnZq1j (notify) + mB0dJy17gxM4V3FN (report)
 - Función: Director de operaciones. Diagnostica el sistema. Escala al Task Runner si detecta fix necesario.
 - Credencial n8n: OnOkrq5xaWWl9e9j
+- Webhook: https://n8n.11mkeys.ai/webhook/advisor-telegram (Webhook genérico, ver Lección 15)
+- Secret: ADVISOR_WEBHOOK_SECRET en .env
 
 ### Monkey Brain
 - Bot: @ElevenMkeys_MonkeyBrain_bot
 - Token: en .env como MONKEY_BRAIN_BOT_TOKEN
+- Workflow: uBR0ICIj2ZtLUCvk (50 nodos)
+- Webhook: https://n8n.11mkeys.ai/webhook/monkeybrain-telegram (Webhook genérico, ver Lección 15)
+- Secret: MONKEYBRAIN_WEBHOOK_SECRET en .env
 - Función: Captura insights, investiga con web_search, scheduler 48h, conecta ideas
 
 ### PM Agent
 - Bot: @ElevenMkeys_PM_Bot (bot_id 8818804931)
 - Token: 8818804931:AAGYdiaWTx-rr_M0sMxRUJzN9Gy05bbH9Fc
-- Workflow: HlY3gLWuJowyITB9 (81 nodos)
-- Webhook: https://n8n.11mkeys.ai/webhook/20246b71-c0a8-4af5-a406-e93749e29524/webhook
+- Workflow: XcHapUoJvZvl8kLs "11Mkeys PM Agent" (99 nodos) — reemplaza a HlY3gLWuJowyITB9
+  (eliminado 2026-07-14, quedó en estado irrecuperable donde activate() nunca
+  volvía a registrar el webhook — ver Lección 15)
+- Webhook: https://n8n.11mkeys.ai/webhook/pm-agent-telegram (Webhook genérico, ver Lección 15)
+- Secret: PM_WEBHOOK_SECRET en .env
 - Credencial: "11Mkeys PM Bot" id JGUqhrTxSR2RjdYy
 - Comandos: /estado /tareas /proyectos /blockers /nueva [desc] #[proyecto] /done [id]
            /run [cmd] /memoria [clave|hoy|proyecto X] /ingreso /finanzas /nuevo_proyecto
+           · nsm_approve_[symbol] / nsm_reject_[symbol] (Narrative Swing Module)
 
 ### Task Runner
 - Workflow: 2vlG13sLx4bXAY86 (18 nodos)
@@ -103,13 +115,17 @@ n8n · Claude API · Telegram bots · PostgreSQL · Redis · Docker · Python ·
 ### Code Agent
 - Bot: @ElevenMkeys_CodeAgent_bot
 - Token: 8763657547:AAHBZoVejJnmYbg2n0gmOqQ48nLmqPjfvqM
-- Webhook: https://n8n.11mkeys.ai/webhook/c1a5e861-f106-4d7d-82e2-0be00cc13a7c/webhook
+- Workflow: YJSrUZ9I6wuLt79v (26 nodos)
+- Webhook: https://n8n.11mkeys.ai/webhook/codeagent-telegram (Webhook genérico, ver Lección 15)
+- Secret: CODEAGENT_WEBHOOK_SECRET en .env
 - Comandos: /fix_etherscan /status /logs /scores · approve_deploy · reject_deploy
 
 ### SmartDevops Agent
 - Bot: @ElevenMkeys_SmartDevops_bot
 - Token: 8141614556:AAEbY07qhTW0idh5BaH5fMjv2JPt2PY1mV0 — en .env como SMARTDEVOPS_BOT_TOKEN
-- Webhook: https://n8n.11mkeys.ai/webhook/4e2d5c25-11ce-476c-85c7-d45f847f168c/webhook
+- Workflow: qEN2uvjywgpB5jaN (9 nodos)
+- Webhook: https://n8n.11mkeys.ai/webhook/smartdevops-telegram (Webhook genérico, ver Lección 15)
+- Secret: SMARTDEVOPS_WEBHOOK_SECRET en .env
 - Función: Ciclo 30min, Docker API + PostgreSQL + Redis, propone fixes con sd_approve/sd_ignore
 - Historial en: diagnostics_log (PostgreSQL)
 - Container standalone (no en docker-compose.yml) — recrear con docker run + --env-file
@@ -133,10 +149,14 @@ n8n · Claude API · Telegram bots · PostgreSQL · Redis · Docker · Python ·
 - Finance Alerts: workflow propio, lunes 09:00 UTC
 - Proyectos válidos: crypto_agent · nodeflow · depin · estrategia_b · 11mkeys_lab
 
-### Monkey Advisor (legacy)
-- Bot: @MonkeyAdvisor_11Mkeys_bot
-- Token: 8829243525:AAGvN7WJsGbM3Hfg0uDAPUog38yALBOghdQ
-- Webhook: https://n8n.11mkeys.ai/webhook/4ddb16b8-171d-4811-8da5-65e99b4ee153/webhook
+### Monkey Advisor - Consultas (ARCHIVADO 2026-07-14)
+- Workflow eliminado de n8n. Compartía el bot @MonkeyAdvisor_11Mkeys_bot con
+  Code Agent — un bot solo puede tener un webhook activo, y el real quedaba
+  registrado a Code Agent, así que este workflow nunca recibió tráfico.
+  Usaba además convenciones obsoletas (docker compose exec/ps, DB crypto_agent
+  en vez de lab_11mkeys). Sin funcionalidad única frente a Monkey Brain.
+- Backup completo: /opt/11mkeys_lab/archive/monkey_advisor_consultas_20260713.json
+- Detalle: lab_memory clave monkey_advisor_consultas_archivado
 
 ## lab_memory — Memoria RAG compartida
 - Tabla: lab_memory en lab_11mkeys
@@ -213,6 +233,39 @@ LIMIT 15;
     << 'MARKER' si el código está en la sección quoted del comando SSH. Solución: escribir
     el JS a un archivo vía cat << 'RAWEOF' (heredoc single-quoted remoto) usando solo
     double-quotes en el JS, luego aplicar PUT con Python leyendo el archivo.
+15. n8n-nodes-base.telegramTrigger: activate() (vía API o vía toggle de la UI) no
+    siempre llama a setWebhook de Telegram, aunque el workflow quede active=true y
+    registre la ruta interna en webhook_entity. Bug reproducible en n8n 2.22.5, no
+    logea ningún error. Síntoma: getWebhookInfo muestra url vacía, o 403 "secret
+    inválido" pese a active=true y ruta registrada. Probado sin éxito: toggle API,
+    toggle UI, editar el nodo a mano, reiniciar el container completo, duplicar el
+    workflow entero. SOLUCIÓN DEFINITIVA (no usar telegramTrigger nunca más):
+      1. Reemplazar el nodo Telegram Trigger por n8n-nodes-base.webhook
+         (httpMethod POST, path fijo legible ej. "pm-agent-telegram",
+         responseMode onReceived).
+      2. Agregar un nodo Code inmediatamente después que valide el secret y
+         normalice el body:
+         const secret = ($json.headers||{})['x-telegram-bot-api-secret-token'];
+         const expected = '<SECRET>'; // guardado en .env como {BOT}_WEBHOOK_SECRET
+         if (secret !== expected) return [];
+         return [{ json: $json.body }];
+      3. Registrar el webhook a mano (n8n nunca lo hace solo para este tipo de nodo):
+         curl -X POST https://api.telegram.org/bot{TOKEN}/setWebhook -H
+         "Content-Type: application/json" -d '{"url":"https://n8n.11mkeys.ai/webhook/
+         {path}","secret_token":"{SECRET}","allowed_updates":["message","callback_query"]}'
+      4. CRÍTICO: el nodo Code de validación debe quedarse con el NOMBRE ORIGINAL
+         del Telegram Trigger que reemplaza (ej. "Telegram Trigger"), no el nodo
+         Webhook. Otros nodos del workflow pueden referenciarlo por nombre vía
+         $('Telegram Trigger').json... y esas referencias se rompen si se renombra
+         — detectado en Code Agent, nodo "Send a text message" fallaba con
+         "Referenced node doesn't exist" hasta corregir el nombre.
+      5. Un bot de Telegram solo admite un webhook activo — si dos workflows
+         comparten credencial, solo uno recibe tráfico real (causa real de que
+         Monkey Advisor - Consultas nunca funcionara, ver sección de agentes).
+    Aplicado 2026-07-13/14 a los 5 bots del Lab con Telegram Trigger: PM Agent,
+    Strategy Advisor, Monkey Brain, SmartDevops Agent, Code Agent. El Task Runner
+    (2vlG13sLx4bXAY86) ya usaba Webhook genérico desde el inicio — no necesitó
+    migración. Todo bot nuevo debe nacer con este patrón, nunca telegramTrigger.
 
 ## Estado del sistema (actualizado 2026-07-11)
 - Monitor: 81 tokens activos, ciclo ~5 min

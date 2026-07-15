@@ -1,0 +1,368 @@
+{
+    "updatedAt": "2026-05-31T18:13:28.792Z",
+    "createdAt": "2026-05-31T17:31:31.340Z",
+    "id": "7vSH10Gj5GB2KtIb",
+    "name": "Monkey Advisor - Consultas",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+        {
+            "parameters": {
+                "updates": [
+                    "message"
+                ],
+                "additionalFields": {}
+            },
+            "name": "Monkey Telegram Trigger",
+            "type": "n8n-nodes-base.telegramTrigger",
+            "typeVersion": 1,
+            "position": [
+                0,
+                0
+            ],
+            "id": "f54b3374-60d8-4a96-8f87-0bf6c1e07190",
+            "webhookId": "4ddb16b8-171d-4811-8da5-65e99b4ee153",
+            "credentials": {
+                "telegramApi": {
+                    "id": "YKxw3Es3cGzlBJb4",
+                    "name": "Monkey Advisor Bot"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "command": "cd /opt/crypto_agent_system && echo '=ESTADO SISTEMA=' && docker compose ps --format '{{.Name}} {{.Status}}' && echo '=CLAUDE.md=' && head -60 CLAUDE.md && echo '=ULTIMAS ALERTAS=' && docker compose exec -T postgres psql -U postgres -d crypto_agent -c \"SELECT token_symbol, score, sent_at FROM alerts ORDER BY sent_at DESC LIMIT 5;\" 2>/dev/null"
+            },
+            "name": "Get System Context",
+            "type": "n8n-nodes-base.ssh",
+            "typeVersion": 1,
+            "position": [
+                224,
+                0
+            ],
+            "id": "382555ce-7676-46aa-880f-5a89a4353d5f",
+            "credentials": {
+                "sshPassword": {
+                    "id": "Z2G2b7MKiHAAVkNA",
+                    "name": "VPS Hostinger"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "modelId": {
+                    "__rl": true,
+                    "value": "claude-sonnet-4-6",
+                    "mode": "list",
+                    "cachedResultName": "claude-sonnet-4-6"
+                },
+                "messages": {
+                    "values": [
+                        {
+                            "content": "=={{ \"Contexto:\\n\" + $('Get System Context').item.json.stdout + \"\\n\\nPregunta: \" + $('Monkey Telegram Trigger').item.json.message.text }}"
+                        }
+                    ]
+                },
+                "options": {
+                    "system": "Sos Monkey Advisor, agente educativo del lab 11Mkeys. Explic\u00e1s conceptos t\u00e9cnicos en lenguaje simple para un founder de negocios. Us\u00e1 analog\u00edas cotidianas. M\u00e1ximo 4 p\u00e1rrafos. Termin\u00e1 con una pregunta de seguimiento."
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.anthropic",
+            "typeVersion": 1,
+            "position": [
+                400,
+                0
+            ],
+            "id": "d939cda5-6c22-47dd-8d26-6567f81e3a87",
+            "name": "Message a model",
+            "credentials": {
+                "anthropicApi": {
+                    "id": "S2iLe5Rqqy3ewztJ",
+                    "name": "Anthropic account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "chatId": "6517856768",
+                "text": "=={{ \"\ud83d\udc35 *Monkey Advisor*\\n\\n\" + $json.content[0].text }}",
+                "additionalFields": {
+                    "parse_mode": "Markdown"
+                }
+            },
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+                752,
+                0
+            ],
+            "id": "415cdad8-7b76-4ba1-a73f-90be9574fdca",
+            "name": "Send a text message",
+            "webhookId": "6e993d5d-ca64-47a1-a2fd-802aaed66933",
+            "credentials": {
+                "telegramApi": {
+                    "id": "YKxw3Es3cGzlBJb4",
+                    "name": "Monkey Advisor Bot"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Monkey Telegram Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Get System Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get System Context": {
+            "main": [
+                [
+                    {
+                        "node": "Message a model",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Message a model": {
+            "main": [
+                [
+                    {
+                        "node": "Send a text message",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1",
+        "binaryMode": "separate"
+    },
+    "staticData": null,
+    "meta": {
+        "templateCredsSetupCompleted": true
+    },
+    "pinData": {},
+    "versionId": "a239ec1d-42fa-4724-843a-cecceec22614",
+    "activeVersionId": "a239ec1d-42fa-4724-843a-cecceec22614",
+    "versionCounter": 40,
+    "triggerCount": 1,
+    "shared": [
+        {
+            "updatedAt": "2026-05-31T17:31:31.348Z",
+            "createdAt": "2026-05-31T17:31:31.348Z",
+            "role": "workflow:owner",
+            "workflowId": "7vSH10Gj5GB2KtIb",
+            "projectId": "FpuUTlWERUD9Elte",
+            "project": {
+                "updatedAt": "2026-05-31T17:18:07.407Z",
+                "createdAt": "2026-05-31T17:16:16.193Z",
+                "id": "FpuUTlWERUD9Elte",
+                "name": "Marcelo Diaz <marcelo@11mkeys.ai>",
+                "type": "personal",
+                "icon": null,
+                "description": null,
+                "creatorId": "cfe7c5ed-3c2d-430c-ac21-aad1acdfad2b"
+            }
+        }
+    ],
+    "tags": [],
+    "activeVersion": {
+        "updatedAt": "2026-05-31T18:45:47.000Z",
+        "createdAt": "2026-05-31T18:13:28.793Z",
+        "versionId": "a239ec1d-42fa-4724-843a-cecceec22614",
+        "workflowId": "7vSH10Gj5GB2KtIb",
+        "nodes": [
+            {
+                "parameters": {
+                    "updates": [
+                        "message"
+                    ],
+                    "additionalFields": {}
+                },
+                "name": "Monkey Telegram Trigger",
+                "type": "n8n-nodes-base.telegramTrigger",
+                "typeVersion": 1,
+                "position": [
+                    0,
+                    0
+                ],
+                "id": "f54b3374-60d8-4a96-8f87-0bf6c1e07190",
+                "webhookId": "4ddb16b8-171d-4811-8da5-65e99b4ee153",
+                "credentials": {
+                    "telegramApi": {
+                        "id": "YKxw3Es3cGzlBJb4",
+                        "name": "Monkey Advisor Bot"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "command": "cd /opt/crypto_agent_system && echo '=ESTADO SISTEMA=' && docker compose ps --format '{{.Name}} {{.Status}}' && echo '=CLAUDE.md=' && head -60 CLAUDE.md && echo '=ULTIMAS ALERTAS=' && docker compose exec -T postgres psql -U postgres -d crypto_agent -c \"SELECT token_symbol, score, sent_at FROM alerts ORDER BY sent_at DESC LIMIT 5;\" 2>/dev/null"
+                },
+                "name": "Get System Context",
+                "type": "n8n-nodes-base.ssh",
+                "typeVersion": 1,
+                "position": [
+                    224,
+                    0
+                ],
+                "id": "382555ce-7676-46aa-880f-5a89a4353d5f",
+                "credentials": {
+                    "sshPassword": {
+                        "id": "Z2G2b7MKiHAAVkNA",
+                        "name": "VPS Hostinger"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "modelId": {
+                        "__rl": true,
+                        "value": "claude-sonnet-4-6",
+                        "mode": "list",
+                        "cachedResultName": "claude-sonnet-4-6"
+                    },
+                    "messages": {
+                        "values": [
+                            {
+                                "content": "=={{ \"Contexto:\\n\" + $('Get System Context').item.json.stdout + \"\\n\\nPregunta: \" + $('Monkey Telegram Trigger').item.json.message.text }}"
+                            }
+                        ]
+                    },
+                    "options": {
+                        "system": "Sos Monkey Advisor, agente educativo del lab 11Mkeys. Explic\u00e1s conceptos t\u00e9cnicos en lenguaje simple para un founder de negocios. Us\u00e1 analog\u00edas cotidianas. M\u00e1ximo 4 p\u00e1rrafos. Termin\u00e1 con una pregunta de seguimiento."
+                    }
+                },
+                "type": "@n8n/n8n-nodes-langchain.anthropic",
+                "typeVersion": 1,
+                "position": [
+                    400,
+                    0
+                ],
+                "id": "d939cda5-6c22-47dd-8d26-6567f81e3a87",
+                "name": "Message a model",
+                "credentials": {
+                    "anthropicApi": {
+                        "id": "S2iLe5Rqqy3ewztJ",
+                        "name": "Anthropic account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "chatId": "6517856768",
+                    "text": "=={{ \"\ud83d\udc35 *Monkey Advisor*\\n\\n\" + $json.content[0].text }}",
+                    "additionalFields": {
+                        "parse_mode": "Markdown"
+                    }
+                },
+                "type": "n8n-nodes-base.telegram",
+                "typeVersion": 1.2,
+                "position": [
+                    752,
+                    0
+                ],
+                "id": "415cdad8-7b76-4ba1-a73f-90be9574fdca",
+                "name": "Send a text message",
+                "webhookId": "6e993d5d-ca64-47a1-a2fd-802aaed66933",
+                "credentials": {
+                    "telegramApi": {
+                        "id": "YKxw3Es3cGzlBJb4",
+                        "name": "Monkey Advisor Bot"
+                    }
+                }
+            }
+        ],
+        "connections": {
+            "Monkey Telegram Trigger": {
+                "main": [
+                    [
+                        {
+                            "node": "Get System Context",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Get System Context": {
+                "main": [
+                    [
+                        {
+                            "node": "Message a model",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Message a model": {
+                "main": [
+                    [
+                        {
+                            "node": "Send a text message",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            }
+        },
+        "authors": "Marcelo Diaz",
+        "name": "v1.0 - Monkey Advisor inicial",
+        "description": "Nodo Telegram nativo para env\u00edo de respuestas",
+        "autosaved": true,
+        "workflowPublishHistory": [
+            {
+                "createdAt": "2026-05-31T18:15:11.840Z",
+                "id": 13,
+                "workflowId": "7vSH10Gj5GB2KtIb",
+                "versionId": "a239ec1d-42fa-4724-843a-cecceec22614",
+                "event": "activated",
+                "userId": "cfe7c5ed-3c2d-430c-ac21-aad1acdfad2b"
+            },
+            {
+                "createdAt": "2026-05-31T18:30:02.481Z",
+                "id": 15,
+                "workflowId": "7vSH10Gj5GB2KtIb",
+                "versionId": "a239ec1d-42fa-4724-843a-cecceec22614",
+                "event": "activated",
+                "userId": "cfe7c5ed-3c2d-430c-ac21-aad1acdfad2b"
+            },
+            {
+                "createdAt": "2026-05-31T18:45:47.348Z",
+                "id": 17,
+                "workflowId": "7vSH10Gj5GB2KtIb",
+                "versionId": "a239ec1d-42fa-4724-843a-cecceec22614",
+                "event": "activated",
+                "userId": "cfe7c5ed-3c2d-430c-ac21-aad1acdfad2b"
+            },
+            {
+                "createdAt": "2026-05-31T18:19:28.130Z",
+                "id": 14,
+                "workflowId": "7vSH10Gj5GB2KtIb",
+                "versionId": "a239ec1d-42fa-4724-843a-cecceec22614",
+                "event": "deactivated",
+                "userId": "cfe7c5ed-3c2d-430c-ac21-aad1acdfad2b"
+            },
+            {
+                "createdAt": "2026-05-31T18:45:42.747Z",
+                "id": 16,
+                "workflowId": "7vSH10Gj5GB2KtIb",
+                "versionId": "a239ec1d-42fa-4724-843a-cecceec22614",
+                "event": "deactivated",
+                "userId": "cfe7c5ed-3c2d-430c-ac21-aad1acdfad2b"
+            }
+        ]
+    }
+}
