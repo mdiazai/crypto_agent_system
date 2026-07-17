@@ -89,6 +89,23 @@ class Settings(BaseSettings):
     paper_trading: bool = Field(True)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field("INFO")
 
+    # ── Narrative Swing Module ───────────────────────────────────────────────
+    lunarcrush_api_key: SecretStr = Field(default="")
+    nansen_api_key: SecretStr = Field(default="")
+    cryptopanic_api_key: SecretStr = Field(default="")
+    narrative_alert_threshold: float = Field(80.0, ge=0, le=100)
+    narrative_consult_threshold: float = Field(60.0, ge=0, le=100)
+    narrative_cycle_hours: int = Field(6, ge=1)
+    narrative_capital_per_trade: float = Field(500.0, gt=0)
+    narrative_max_hold_days: int = Field(21, ge=1)
+    narrative_stop_loss_pct: float = Field(10.0, gt=0)
+    narrative_target1_pct: float = Field(15.0, gt=0)
+    narrative_target2_pct: float = Field(30.0, gt=0)
+    narrative_paper_trading_days: int = Field(30, ge=1)
+    narrative_min_trades_gate: int = Field(10, ge=1)
+    narrative_min_win_rate: float = Field(0.55, ge=0, le=1)
+    narrative_min_profit_factor: float = Field(1.3, gt=0)
+
     # ── Observabilidad ────────────────────────────────────────────────────────
     sentry_dsn: str = Field(default="")
     prometheus_port: int = Field(8000)
