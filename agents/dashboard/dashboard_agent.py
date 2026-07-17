@@ -26,7 +26,7 @@ from shared.utils import configure_logging
 
 from .auth import get_current_user
 from .websocket_manager import ws_manager
-from .routers import auth, tokens, trades, config, agents, performance
+from .routers import auth, tokens, trades, config, agents, performance, narrative
 
 log = structlog.get_logger(__name__)
 
@@ -101,6 +101,7 @@ def create_app() -> FastAPI:
     app.include_router(config.router)
     app.include_router(agents.router)
     app.include_router(performance.router)
+    app.include_router(narrative.router)
 
     # ── Health ────────────────────────────────────────────────────────────────
     @app.get("/health", tags=["system"])

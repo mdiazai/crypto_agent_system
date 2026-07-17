@@ -53,6 +53,7 @@ class MetricsReporter:
         quality_emoji = _quality_emoji(m.avg_quality_score)
 
         lines = [
+            "⚡ <b>CRIMINAL PUMPS</b>",
             "📈 <b>REPORTE SEMANAL — Crypto Agent System</b>",
             f"📅 Período: últimos {m.period_days} días",
             "━━━━━━━━━━━━━━━━━",

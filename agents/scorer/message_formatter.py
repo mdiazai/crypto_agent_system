@@ -19,6 +19,7 @@ def format_alert(scored: ScoredToken) -> str:
     volume_str = _fmt_money(scored.volume_24h_usd)
 
     lines = [
+        "⚡ <b>CRIMINAL PUMPS</b>",
         "🚨 <b>PUMP SIGNAL DETECTADO</b>",
         "━━━━━━━━━━━━━━━━━",
         f"🪙 Token: <b>${scored.symbol}</b>",
@@ -54,7 +55,7 @@ def format_dedup_skip(symbol: str, last_sent_minutes_ago: int) -> str:
 
 
 def format_system_alert(title: str, body: str) -> str:
-    return f"⚠️ <b>{title}</b>\n{body}"
+    return f"⚡ <b>CRIMINAL PUMPS</b>\n⚠️ <b>{title}</b>\n{body}"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
