@@ -1,5 +1,5 @@
 # CLAUDE.md — 11mkeys_lab
-## Actualizado: 2026-07-14
+## Actualizado: 2026-07-16
 
 ## Descripción
 Stack de automatización del 11Mkeys AI Lab.
@@ -95,15 +95,36 @@ n8n · Claude API · Telegram bots · PostgreSQL · Redis · Docker · Python ·
 ### PM Agent
 - Bot: @ElevenMkeys_PM_Bot (bot_id 8818804931)
 - Token: 8818804931:AAGYdiaWTx-rr_M0sMxRUJzN9Gy05bbH9Fc
-- Workflow: XcHapUoJvZvl8kLs "11Mkeys PM Agent" (99 nodos) — reemplaza a HlY3gLWuJowyITB9
+- Workflow: XcHapUoJvZvl8kLs "11Mkeys PM Agent" (111 nodos) — reemplaza a HlY3gLWuJowyITB9
   (eliminado 2026-07-14, quedó en estado irrecuperable donde activate() nunca
   volvía a registrar el webhook — ver Lección 15)
 - Webhook: https://n8n.11mkeys.ai/webhook/pm-agent-telegram (Webhook genérico, ver Lección 15)
 - Secret: PM_WEBHOOK_SECRET en .env
 - Credencial: "11Mkeys PM Bot" id JGUqhrTxSR2RjdYy
-- Comandos: /estado /tareas /proyectos /blockers /nueva [desc] #[proyecto] /done [id]
+- IMPORTANTE: este mismo webhook recibe TAMBIÉN los mensajes del CryptoAgentBot
+  (TELEGRAM_BOT_TOKEN) — no son bots técnicamente separados a nivel n8n, el
+  routing (Route Command switch) es lo que separa comandos de gestión del Lab
+  de comandos de trading. Ver "Narrative Swing — Dashboard y comandos" abajo.
+- Comandos Lab: /estado /tareas /proyectos /blockers /nueva [desc] #[proyecto] /done [id]
            /run [cmd] /memoria [clave|hoy|proyecto X] /ingreso /finanzas /nuevo_proyecto
-           · nsm_approve_[symbol] / nsm_reject_[symbol] (Narrative Swing Module)
+- Comandos Narrative Swing (tag 🌊): /narrative (candidatos) · /trades_ns (posiciones paper)
+           · /gate (progreso al gate de producción) · nsm_approve_[symbol] / nsm_reject_[symbol]
+- Comandos Criminal Pumps (tag ⚡): /pumps (estado watchlist)
+
+### Narrative Swing — Dashboard y convención de canales
+- Dashboard web: http://167.88.33.68:8001/static/narrative.html (link "🌊 Narrative Swing"
+  en la nav del dashboard principal). Requiere login JWT (mismo que el dashboard general).
+  Endpoints: GET /narrative/candidates · /narrative/trades · /narrative/gate
+  (montados sin prefijo /api, igual que el resto de los routers del dashboard — ver
+  agents/dashboard/routers/narrative.py en crypto_agent_system)
+- Convención de canales Telegram (decisión de Marce 2026-07-13): PM Bot = gestión del
+  Lab (tareas, proyectos, finanzas, memoria). CryptoAgentBot = trading (Criminal Pumps ⚡
+  + Narrative Swing 🌊), notificaciones Y consultas. Todo mensaje de trading lleva tag
+  de sistema (🌊 NARRATIVE SWING / ⚡ CRIMINAL PUMPS) — aplicado en
+  agents/scorer/message_formatter.py, agents/learner/metrics_reporter.py y
+  agents/narrative/notifier.py (crypto_agent_system).
+- Gate de producción Narrative Swing: 30 días · 10 trades cerrados · win rate ≥55% ·
+  profit factor ≥1.3. Progreso visible en /gate (bot) o el dashboard.
 
 ### Task Runner
 - Workflow: 2vlG13sLx4bXAY86 (18 nodos)
@@ -266,6 +287,36 @@ LIMIT 15;
     Strategy Advisor, Monkey Brain, SmartDevops Agent, Code Agent. El Task Runner
     (2vlG13sLx4bXAY86) ya usaba Webhook genérico desde el inicio — no necesitó
     migración. Todo bot nuevo debe nacer con este patrón, nunca telegramTrigger.
+16. psql con `-t -A` (tuples-only, unaligned) SIGUE imprimiendo las líneas de status
+    de comandos DML sin resultado ("UPDATE 0", "INSERT 0 0") cuando 0 filas matchean
+    — no es un output vacío, es texto no-vacío interpretado erróneamente como "sí hubo
+    resultado" en nodos Code que solo chequean `if (!raw)`. Fix: agregar también `-q`
+    (quiet) — con `-q -t -A` el output es realmente vacío cuando no hay filas. Detectado
+    2026-07-16 en el workflow de Narrative Swing (un símbolo inexistente se reportaba
+    como "archivado" con éxito). Aplicar `-q` siempre que el output de psql se parsea
+    programáticamente en un nodo Code.
+17. INYECCIÓN DE SHELL vía contenido de LLM: si un comando SSH arma `psql -c "SQL con
+    ${contenido_de_claude} interpolado"` y ese contenido trae una comilla doble, el
+    shell corta el argumento ahí mismo y el resto del texto se ejecuta como comandos/
+    argumentos de shell sueltos (visto en vivo: "docker: 'docker logs' requires 1
+    argument", palabras del texto de Claude tratadas como comandos). Pasa con
+    cualquier texto largo de LLM insertado en un `-c "..."` de shell, no solo casos
+    raros — prosa normal trae comillas dobles seguido. FIX OBLIGATORIO para cualquier
+    INSERT/UPDATE con contenido largo/libre de un LLM: no interpolar en `-c "..."`.
+    En su lugar, base64 + stdin: `echo '${base64_del_sql}' | base64 -d | timeout 10
+    docker exec -i crypto_agent_system-postgres-1 psql -U postgres -d lab_11mkeys`
+    (Buffer.from(sql,'utf-8').toString('base64') en el nodo Code). El shell nunca ve
+    el contenido crudo. Detectado y corregido 2026-07-16 en Monkey Brain (Build SQL).
+    Auditar cualquier otro nodo que inserte texto libre de Claude/LLM a la DB via SSH.
+18. Telegram Markdown v1 (parse_mode Markdown) rompe con "can't parse entities" no solo
+    por `**`/`_` sin cerrar (Lección 11) sino por CUALQUIER `[texto]` sin `(url)`
+    inmediatamente después (se interpreta como link incompleto) y por underscores
+    sueltos en texto propio del bot, no solo contenido de LLM — ej. mencionar el
+    comando `/trades_ns` literal en un mensaje rompe el parseo porque `_` abre itálica.
+    Fix para texto fijo (no generado por LLM): envolver en backticks (`` `/trades_ns` ``)
+    — los code-spans de Markdown no parsean formato anidado. Para corchetes literales
+    tipo "[L1]", usar paréntesis "(L1)" en su lugar. Detectado 2026-07-16 construyendo
+    los comandos /narrative del Narrative Swing Module.
 
 ## Estado del sistema (actualizado 2026-07-11)
 - Monitor: 81 tokens activos, ciclo ~5 min

@@ -4424,3 +4424,92 @@ funcionalidad no cubierta por Monkey Brain, y construido sobre convenciones ya o
 ### Lección aprendida
 Ver Lección 15 en CLAUDE.md — resumen: nunca usar `n8n-nodes-base.telegramTrigger` en este entorno;
 usar Webhook genérico + secret propio desde el arranque para cualquier bot nuevo.
+
+---
+
+## Sesión 2026-07-16 — B7: fixes pendientes + diagnóstico Discovery + visibilidad Narrative Swing
+
+### Contexto
+Sesión consolidada de 5 bloques, ejecutados en orden (fixes rápidos → diagnóstico → construcción grande).
+
+### Parte 1 — Fix schema /estado
+Diagnóstico: `Q Estado` ya usaba `status='active'` correctamente y la query en vivo devolvía
+datos reales (4 proyectos activos). El bug reportado (QA del 9/7) ya estaba resuelto de una
+sesión anterior — no se tocó nada.
+
+### Parte 2 — Fix Advisor Task Runner JSON inválido
+El bug original (JSON Body como string con concatenación) ya estaba resuelto — `HTTP Task Runner`
+usa `bodyParameters` estructurado, que n8n serializa de forma segura. Confirmado revisando la
+última ejecución con error real (exec 645, 12/7): en ese momento el nodo SÍ usaba `jsonBody` crudo;
+la config actual ya no. Se agregó el endurecimiento adicional pedido: `IF Needs Fix` ahora exige
+también `task_spec.target_file` no nulo, no solo `fix_type === needs_fix`. Probado con mensaje
+conversacional real ("como esta el lab?") → clasificado `informational`, no escaló, sin error.
+
+### Parte 3 — Diagnóstico Monkey Brain no notifica al Advisor
+La premisa era parcialmente incorrecta: el flujo `IF Project Potential → Advisor Notify` funciona
+bien (4 casos históricos confirmados con notificación real: exec 452, 439, 435, 648). El insight
+del 10/7 tampoco estaba truncado en lab_memory (5821 caracteres, completo, con las 6 secciones).
+
+Se encontraron y corrigieron 2 bugs reales distintos:
+1. **`Send Findings` crasheaba** con "Bad Request: can't parse entities" cuando el texto de
+   investigación de Claude traía Markdown sin cerrar — faltaba el fix de Lección 11 en el nodo
+   `Parse Research`. Aplicado el mismo `stripMd()` que ya usa Strategy Advisor.
+2. **Inyección de shell** (bug más serio, ver Lección 17 nueva en CLAUDE.md): `Build SQL` armaba
+   el INSERT como `psql -c "..."` con el contenido de Claude interpolado directo dentro de
+   comillas dobles de shell — si el research traía una comilla doble, el comando se cortaba ahí
+   y el resto del texto se ejecutaba como argumentos de shell sueltos. Fix: base64 + stdin a psql
+   en vez de interpolación directa.
+
+Los 2 crashes reales en el histórico: exec 660 (14/7, la investigación L1 que Marce disparó) y
+exec 614 (11/7) — ambos fallaban en `Send Findings` antes de siquiera evaluar potencial de
+proyecto. Ambos fixes validados end-to-end con un ciclo de prueba real completo (insight →
+preguntas → respuestas → investigación → `Send Findings` ok:true → `INSERT 0 1` limpio).
+
+### Parte 4 — Diagnóstico Discovery no promueve tokens
+Falsa alarma. Verificado con SQL directo: 24 tokens `status='active'`, el más reciente
+`added_at` 2026-07-14 (hace 2 días), `last_checked` de hoy mismo para todos. Revisado también
+el código del router del dashboard — query simple sin filtros que excluyan estos tokens. La
+observación original probablemente venía de mirar el dashboard antes del 11/7.
+
+### Parte 5 (B6) — Visibilidad Narrative Swing
+**Parte 0 — Tags de sistema:** agregado `🌊 NARRATIVE SWING` / `⚡ CRIMINAL PUMPS` como primera
+línea de todos los mensajes salientes: `agents/scorer/message_formatter.py` (format_alert,
+format_system_alert), `agents/learner/metrics_reporter.py` (reporte semanal),
+`agents/narrative/notifier.py`. Rebuild + redeploy de scorer, learner y narrative-research.
+
+**Parte A — Dashboard:** nuevo router `agents/dashboard/routers/narrative.py`
+(`/narrative/candidates`, `/narrative/trades`, `/narrative/gate`) y vista
+`static/narrative.html` (mismo estilo Alpine.js + Tailwind que `performance.html`: progreso al
+gate con barras, tabla de candidatos con color por score, tabla de trades con P&L). Link agregado
+en la nav del dashboard principal. Registrado en `dashboard_agent.py`, rebuild + redeploy.
+Verificado end-to-end con login JWT real: `/narrative/gate` devuelve `days_elapsed:4,
+trades_closed:0` (coincide con la DB), `/narrative/candidates` devuelve los 15 tokens reales.
+
+**Parte B — Comandos del bot:** confirmado que el webhook del CryptoAgentBot (`TELEGRAM_BOT_TOKEN`)
+ya apunta al mismo workflow n8n que el PM Agent (`XcHapUoJvZvl8kLs`) — no son bots separados a
+nivel de infraestructura, aunque Marce los trata como canales conceptualmente distintos. Se
+agregaron 4 comandos nuevos como ramas del mismo `Route Command` switch (12 nodos nuevos: Q+Fmt+Send
+por comando): `/narrative`, `/trades_ns`, `/gate`, `/pumps`. Los 3 primeros llevan tag 🌊, `/pumps`
+lleva ⚡. En el camino se encontraron 2 bugs más de Telegram Markdown v1 (ver Lección 18 nueva):
+corchetes `[L1]` interpretados como link incompleto, y el underscore de `/trades_ns` interpretado
+como itálica sin cerrar — ambos corregidos (paréntesis en vez de corchetes, backticks para el
+nombre del comando). Los 4 comandos probados con webhook real, `ok:true` en Telegram confirmado
+en cada uno, con datos reales coincidentes con el dashboard y la DB. Regresión de
+`nsm_approve_`/`nsm_reject_` confirmada intacta después de las 3 ediciones del workflow.
+
+### Lecciones nuevas agregadas a CLAUDE.md
+- **16:** `psql -t -A` sin `-q` deja pasar las líneas de status ("UPDATE 0") como si fueran datos.
+- **17:** inyección de shell vía contenido de LLM interpolado en `psql -c "..."` — usar base64+stdin.
+- **18:** Telegram Markdown v1 rompe con corchetes sin `(url)` y con underscores sueltos en texto
+  fijo del bot, no solo en contenido de LLM.
+
+### Pendiente (Parte 6, opcional, no ejecutada)
+API keys hardcodeadas en los JSON de Weekly Board Agent (#7) y Code Agent (#10) — quedan para
+una sesión futura, no eran urgentes y se priorizó cerrar B6 completo.
+
+### Verificación final — 3 canales
+- `/estado` al PM Bot: responde con datos reales ✅
+- `/narrative`, `/trades_ns`, `/gate`, `/pumps` al CryptoAgentBot: responden con tags y datos
+  reales, confirmados con `ok:true` de la API de Telegram ✅
+- `nsm_approve_`/`nsm_reject_`: regresión confirmada intacta ✅
+- Mensaje conversacional al Advisor: clasificado y respondido sin escalar al Task Runner ✅
