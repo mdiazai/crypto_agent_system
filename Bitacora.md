@@ -4513,3 +4513,15 @@ una sesión futura, no eran urgentes y se priorizó cerrar B6 completo.
   reales, confirmados con `ok:true` de la API de Telegram ✅
 - `nsm_approve_`/`nsm_reject_`: regresión confirmada intacta ✅
 - Mensaje conversacional al Advisor: clasificado y respondido sin escalar al Task Runner ✅
+
+### Addendum 2026-07-17 — Parte 6 (API keys hardcodeadas)
+Tarea 10 (Code Agent): revisada, sin key hardcodeada encontrada — ya estaba limpio.
+Tarea 7 (Weekly Board Agent): se encontró el N8N_API_KEY completo en texto plano en el
+nodo "HTTP Workflows" (headerParameters). Fix: credencial n8n nueva tipo httpHeaderAuth
+("N8N API Key (self)", id 8ANYoEV7ueCNWPqB) + nodo reconfigurado a
+authentication=genericCredentialType. Verificado que la llamada real sigue funcionando.
+Ambas tareas marcadas /done.
+
+Adicional: se confirmó que el link 🌊 Narrative Swing del dashboard sí se sirve
+correctamente (verificado en el archivo del container y en la respuesta HTTP real) —
+el problema reportado por Marce era caché del navegador, no un bug real.
