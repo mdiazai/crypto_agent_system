@@ -4602,3 +4602,68 @@ Resp`). Probado end-to-end con webhooks reales:
 ### Pendiente
 - Commit + push de `discovery_agent.py` a `crypto_agent_system` (main).
 - Registro en lab_memory de ambos fixes.
+
+---
+
+## Sesión 2026-07-18 — Fix pilar Onchain en 0/40 (Narrative Swing Module)
+
+### Contexto
+Marce reportó que el dashboard mostraba `onchain_score = 0/40` para los 15 tokens del
+universo, incluyendo EVM con cobertura Nansen confirmada (UNI, LINK, ONDO). Pedido de
+diagnóstico en 5 pasos antes de tocar código.
+
+### Diagnóstico
+1. **Cliente Nansen probado en vivo contra la API real**: auth OK (`apikey` header),
+   sin errores propios de 429, sin problema de formato. UNI y LINK devuelven `HTTP 200`
+   con datos reales (`UNI netflow=$91,867/24h`, `LINK netflow=$0`). ONDO devuelve `200`
+   con `data: []` (Nansen no tiene actividad indexada para ese contrato, no es un bug).
+2. **Logs revisados** (`docker inspect` + `tail`, nunca `docker logs`): sin excepciones
+   silenciadas en el pilar onchain — los únicos warnings son 429 de CoinGecko/LunarCrush
+   ya manejados con retry y logueados correctamente.
+3. **Causa real encontrada en `scorer.py`**, no en la API: `_score_onchain()` solo
+   puntuaba `net_flow_24h_usd` por encima de $100K/$1M (el inflow real de UNI, $91.8K,
+   quedaba justo debajo) y solo puntuaba el *delta* de `holder_concentration`, nunca el
+   valor absoluto — un 80% de concentración real (MATIC) no sumaba nada sin un ciclo
+   previo con el que compararlo.
+4. **Clasificación L1 de SOL confirmada como bug real, ETH no**: consultada la
+   documentación oficial de Nansen (`docs.nansen.ai`) y probado en vivo contra 1000 filas
+   del endpoint `smart-money/netflow` con el filtro `include_native_tokens=true` —
+   **SOL nativo SÍ está indexado** bajo la dirección de wrapped-SOL
+   (`So11111111111111111111111111111111111111112`), con market cap real (~$44B) y
+   netflow real. **ETH nativo NO tiene equivalente** en este endpoint específico (solo
+   apareció un token-scam reusando el símbolo "ETH" con market cap de $9.8K) — se
+   mantiene sin cobertura, decisión informada por evidencia, no un bug sin resolver.
+5. **Rebalanceo L1 (Narrativa 50 + Técnico 50) confirmado como NUNCA implementado**
+   (grep sin resultados de lógica real, solo la etiqueta visual "⚪ L1" en el dashboard).
+   Dejaba a 9 tokens sin cobertura posible con un techo estructural de 60/100.
+
+### Fix (aprobado por Marce vía 2 decisiones de calibración)
+- `scorer.py`: umbrales de net_flow recalibrados a $20K→4pts / $50K→8pts / $200K→15pts /
+  $1M→20pts (antes solo $100K→12pts / $1M→20pts). Nueva señal de `holder_concentration_pct`
+  absoluto (>40%→4pts, >60%→8pts), suma junto al delta existente, cap total en 40pts.
+- `nansen_client.py`: `_NATIVE_TOKEN_OVERRIDE` con la dirección de wrapped-SOL +
+  `include_native_tokens=true` para SOL. Docstring actualizado documentando por qué ETH
+  no recibe el mismo tratamiento.
+- `research_agent.py`: `NO_ONCHAIN_COVERAGE` (clasificación estática de 9 símbolos sin
+  cobertura posible, no depende de si la resolución de contrato falló este ciclo por
+  rate-limit) + `scorer.calculate(onchain_coverage_available=...)` que rebalancea
+  `combined = narrativa*(50/35) + tecnico*(50/25)` para esos 9 símbolos.
+- `dashboard/static/narrative.html`: nota visual "(rebalanceado)" cuando el combinado no
+  coincide con la suma simple de las 3 columnas, para no mostrar `0/40 onchain` de forma
+  engañosa junto a un combined score ya recalculado.
+
+### Verificación end-to-end
+Probado localmente (`docker cp` sin rebuild) contra datos reales antes de comprometerse
+al rebuild formal, luego rebuild + redeploy real de `narrative-research` y `dashboard`.
+Ciclo real post-deploy: 15/15 símbolos procesados, 0 errores. Resultados en DB:
+- UNI: onchain 0→12 (netflow $91.8K en tier $50K-200K + concentración 51.69%→4pts)
+- MATIC: onchain 0→18 (delta +10 + concentración absoluta 80%→8pts)
+- ONDO: onchain 0→8 (concentración absoluta 70%→8pts)
+- SOL: netflow real $11.2K confirmado obtenido (cobertura funcionando), onchain=0 este
+  ciclo por no cruzar el umbral mínimo — sin falso positivo, comportamiento correcto.
+- ETH/BTC/XRP/HBAR/ADA/DOT/XDC/XLM: `combined` coincide exacto con la fórmula de
+  rebalanceo (ej. BTC 18*(50/35)+15*(50/25)=55.71, verificado en la DB).
+Dashboard verificado sirviendo el HTML actualizado (`curl /static/narrative.html` con
+las funciones `isRebalanced`/nota "rebalanceado" presentes).
+
+Commit `ad5caf5` en `crypto_agent_system` main, pusheado.
