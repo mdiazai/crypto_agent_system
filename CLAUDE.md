@@ -318,6 +318,37 @@ LIMIT 15;
     tipo "[L1]", usar paréntesis "(L1)" en su lugar. Detectado 2026-07-16 construyendo
     los comandos /narrative del Narrative Swing Module.
 
+19. APScheduler AsyncIOScheduler + Python 3.11: la Lección 3 (usar wrapper síncrono +
+    asyncio.get_running_loop().create_task()) es INCORRECTA para AsyncIOScheduler
+    específicamente. AsyncIOExecutor corre callables *síncronos* en un thread pool sin
+    loop propio — el wrapper sync explota con "RuntimeError: no running event loop"
+    apenas se ejecuta el primer disparo del cron (no al agendar, no al arrancar el
+    agente). Por eso pasó desapercibido: el agente arranca bien, el heartbeat previo
+    da "ok" (de un run manual o de startup), y recién falla en el próximo disparo
+    programado. FIX CORRECTO: pasar la coroutine function DIRECTO a
+    scheduler.add_job(self.run, trigger="cron", ...) sin wrapper — AsyncIOExecutor sí
+    sabe ejecutar coroutine functions correctamente dentro del loop principal (patrón
+    ya usado por monitor_agent.py y research_agent.py). Bug real: discovery_agent.py
+    rompía el cron diario de las 02:00 UTC desde el 30/6 sin que nadie lo notara — el
+    heartbeat en Redis se escribe al FINAL de run(), así que un run() que nunca arrancó
+    tampoco escribe heartbeat nuevo, pero el TTL del heartbeat anterior (de un run
+    manual o startup) lo dejaba en "ok" por horas, ocultando el problema. Detectado
+    2026-07-17 por el propio Strategy Advisor leyendo logs reales (no por monitoreo de
+    heartbeat). Auditar cualquier otro agente con patrón `_scheduled_run` + wrapper sync.
+
+20. n8n Code node después de un nodo Telegram: el output de un nodo Telegram REEMPLAZA
+    $json con la respuesta cruda de la API de Telegram (`{ok, result: {message_id,
+    chat: {id, ...}, text, ...}}`) — NO conserva los campos que traía el item de
+    entrada (ej. chat_id calculado antes). Cualquier nodo Code/SSH encadenado
+    directamente después de un nodo Telegram que necesite datos previos (chat_id,
+    etc.) debe leerlos con $('NodoAnteriorAlTelegram').first().json.campo, nunca
+    $json.campo. Bug real: un nodo SSH que hacía `redis-cli DEL clave:{{ $json.chat_id
+    }}` encadenado después de un Telegram Send devolvía "0" (cero keys borradas)
+    porque $json.chat_id era undefined — el comando corría como `DEL clave:` (chat_id
+    vacío) sin error visible, silenciosamente no borraba nada. Detectado 2026-07-17
+    construyendo el patrón de estado pendiente en Redis del Strategy Advisor
+    (advisor:pending:{chat_id}, mismo patrón que mb:state:{chat_id} de Monkey Brain).
+
 ## Estado del sistema (actualizado 2026-07-11)
 - Monitor: 81 tokens activos, ciclo ~5 min
 - ALERT_THRESHOLD: **28** (ajustado 2026-07-07, era 65 → 43 → 28)

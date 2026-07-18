@@ -4525,3 +4525,80 @@ Ambas tareas marcadas /done.
 Adicional: se confirmó que el link 🌊 Narrative Swing del dashboard sí se sirve
 correctamente (verificado en el archivo del container y en la respuesta HTTP real) —
 el problema reportado por Marce era caché del navegador, no un bug real.
+
+---
+
+## Sesión 2026-07-17 — Re-diagnóstico Discovery + fix continuidad conversacional Advisor
+
+### Contexto
+Marce aportó evidencia fresca que contradecía dos conclusiones cerradas en la sesión B7
+(2026-07-16): la Parte 4 (Discovery "sin bug") y la Parte 2 (Advisor "escalado funciona").
+El propio Strategy Advisor ya había diagnosticado en vivo, ese mismo día, el root cause real
+de Discovery vía lectura de logs — pero cuando Marce respondió "Si" a la pregunta de
+confirmación del Advisor ("¿Escalo esto al Task Runner?"), el escalado nunca llegó.
+
+### Bug 1 — Discovery: RuntimeError: no running event loop
+Confirmado por código, no por asunción. `discovery_agent.py` agendaba el cron diario con un
+wrapper síncrono (`_scheduled_run`) que llamaba `asyncio.get_running_loop().create_task(...)`.
+AsyncIOScheduler corre callables síncronos en un thread pool sin loop propio — el wrapper
+rompía en cada disparo real, sin loguear nada visible hasta que el Advisor leyó los logs
+reales. El heartbeat de Redis mostraba "ok" igual porque se escribe al final de `run()`, y el
+TTL de un run manual/startup anterior tapaba el problema por horas. Roto desde el 30/6.
+
+**Fix:** eliminado el wrapper; `scheduler.add_job(self.run, trigger="cron", ...)` pasa la
+coroutine function directo (mismo patrón que `monitor_agent.py`/`research_agent.py`). Rebuild
++ redeploy de `crypto_agent_system-discovery`. Verificado dos veces: heartbeat "ok" tras un
+run manual, y — más importante — confirmado por el Advisor al día siguiente que el cron real
+de las 02:00 UTC corrió solo, sin intervención: "ciclo completado esta madrugada (02:10 UTC)
+con 2743 símbolos escaneados y 29 candidatos activos". Ver Lección 19 nueva en CLAUDE.md.
+
+### Bug 2 — Strategy Advisor: sin memoria conversacional para confirmaciones
+Confirmado inspeccionando ejecuciones reales de n8n (no logs derivados): exec 706 mostró al
+Advisor diagnosticando el bug de Discovery vía SSH y preguntando "¿Escalo esto al Task
+Runner?"; exec 707 mostró la respuesta de Marce ("Si") clasificada como `informational` con
+`task_spec: null` — `Build Advisor Body` arma cada turno como un mensaje stateless (estado del
+sistema + lab_memory + texto actual), sin ningún registro de la pregunta pendiente del propio
+Advisor. Sin ese contexto, Claude no tiene forma de saber a qué está respondiendo "Si".
+
+**Fix:** patrón de estado pendiente en Redis (`advisor:pending:{chat_id}`, TTL 1800s),
+arquitectura idéntica a `mb:state:{chat_id}` de Monkey Brain. 9 nodos nuevos en el workflow
+"11Mkeys Strategy Advisor" (`7Ohb4fekhWkgfMVE`):
+- Lado lectura (antes de `Route Command`): `Q Advisor Pending` → `Route Pending Check`
+  (clasifica sí/no/ambiguo contra el texto entrante) → switch `Route Pending` (0=escalar,
+  1=cancelar, 2=passthrough sin tocar el flujo original).
+- Lado escritura (paralelo a `Parse Diag Resp`, sin tocar su conexión existente a
+  `Send Advisor`): `Prep Pending State` (arma el task_spec con fallback si Claude no lo dio
+  explícito) → `SSH Write Pending` (base64 + stdin a `redis-cli -x SETEX`, aplicando el
+  patrón anti-inyección de la Lección 17 porque el texto del diagnóstico es contenido libre
+  de Claude).
+
+Verificación de integridad estructural: diff nodo-por-nodo confirmó 0 nodos existentes
+modificados, únicamente 2 conexiones tocadas intencionalmente (`Parse Input`, `Parse Diag
+Resp`). Probado end-to-end con webhooks reales:
+- Camino cancelación: estado pendiente de prueba en Redis + reply "no" → mensaje de
+  cancelación real enviado, clave borrada. Se encontró y corrigió un bug en el primer intento
+  (ver Lección 20): el nodo `Clear Pending Cancel` leía `$json.chat_id` después de un nodo
+  Telegram, que reemplaza `$json` con la respuesta de la API — `chat_id` llegaba vacío y el
+  DEL no borraba nada sin dar error. Corregido a `$('Route Pending Check').first().json.chat_id`.
+- Camino passthrough (sin estado pendiente): `/estado` fluyó igual que antes de los cambios,
+  sin regresión.
+- Camino escritura: pregunta real ("revisá si el discovery arrancó bien anoche") clasificada
+  `informational` (Claude ya tenía contexto suficiente, no necesitó diagnóstico adicional) —
+  confirma de paso que Discovery corrió bien anoche, y confirma que el camino informational
+  sigue sin escribir estado pendiente innecesariamente.
+- Camino escalación (afirmativo → Task Runner) no se forzó con datos ficticios para evitar
+  disparar una escalación real fabricada a Task Runner; los nodos downstream (`Telegram
+  Escalate`, `Build Task Spec`, `HTTP Task Runner`) son nodos existentes sin cambios, ya
+  validados en B7 Parte 2 — la única lógica nueva en ese tramo (`Prep Direct Escalate`) es un
+  mapeo directo de campos, verificado por revisión de código. Queda validado en la próxima
+  ocasión real en que el Advisor pida confirmación de un fix.
+
+### Lecciones nuevas agregadas a CLAUDE.md
+- **19:** AsyncIOScheduler + wrapper síncrono para coroutines = RuntimeError silencioso en
+  cada disparo real; pasar la coroutine function directo a `add_job()`.
+- **20:** un nodo Code/SSH después de un nodo Telegram no puede leer `$json` esperando los
+  campos de entrada — el Telegram node reemplaza `$json` con la respuesta de la API.
+
+### Pendiente
+- Commit + push de `discovery_agent.py` a `crypto_agent_system` (main).
+- Registro en lab_memory de ambos fixes.
