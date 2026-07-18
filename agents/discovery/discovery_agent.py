@@ -39,9 +39,13 @@ class DiscoveryAgent:
         start_http_server(9100)
         log.info("discovery_agent.prometheus_started", port=9100)
 
-        # Schedule daily run
+        # Schedule daily run -- pasar la coroutine function directo, AsyncIOScheduler
+        # la agenda correctamente en el loop principal (mismo patron que monitor_agent
+        # y research_agent). El wrapper sync _scheduled_run causaba RuntimeError: no
+        # running event loop porque AsyncIOExecutor corre callables sync en un thread
+        # pool sin loop propio -- ver Leccion 19 en CLAUDE.md.
         self._scheduler.add_job(
-            self._scheduled_run,
+            self.run,
             trigger="cron",
             hour=settings.discovery_schedule_hour,
             minute=0,
@@ -69,10 +73,6 @@ class DiscoveryAgent:
             self._scheduler.shutdown(wait=False)
             await bus.disconnect()
 
-
-    def _scheduled_run(self) -> None:
-        """APScheduler callback -- creates task on running loop (Python 3.11 fix)."""
-        asyncio.get_running_loop().create_task(self.run())
 
     async def _handle_manual_trigger(self, payload: dict) -> None:
         source = payload.get("source", "unknown")
