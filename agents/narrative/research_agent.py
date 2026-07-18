@@ -46,6 +46,17 @@ TOKEN_COINGECKO_MAP = {
 
 _NANSEN_CHAIN_TO_ONCHAIN_CHAIN = {"ethereum": "evm", "solana": "solana"}
 
+# Símbolos sin ninguna cobertura Nansen posible (L1 nativo sin contrato ni override en
+# nansen_client._NATIVE_TOKEN_OVERRIDE) -- clasificación estática, no depende de si la
+# resolución de contrato falló este ciclo por rate-limit. Ver scorer.calculate()
+# onchain_coverage_available para el rebalanceo Narrativa 50 + Técnico 50 que aplica
+# a estos símbolos. Confirmado en vivo 2026-07-18 contra la API real de Nansen; SOL
+# tiene cobertura vía _NATIVE_TOKEN_OVERRIDE por eso NO está en este set, ETH sí está
+# porque el endpoint de netflow no expone ETH nativo ni con include_native_tokens=true.
+NO_ONCHAIN_COVERAGE = frozenset({
+    "XRP", "HBAR", "XLM", "XDC", "BTC", "ADA", "DOT", "ATOM", "ETH",
+})
+
 # ── Prometheus metrics ────────────────────────────────────────────────────────
 SYMBOLS_PROCESSED = Counter("narrative_symbols_processed_total", "Total símbolos procesados")
 SYMBOL_ERRORS = Counter("narrative_symbol_errors_total", "Errores al procesar un símbolo")
@@ -158,6 +169,7 @@ class ResearchAgent:
             holder_concentration_pct=holder_pct,
             alt_rank_change=alt_rank_change,
             holder_concentration_change=holder_change,
+            onchain_coverage_available=symbol not in NO_ONCHAIN_COVERAGE,
         )
 
         await self._save_candidate(symbol, score, lc_data, cp_data, nansen_data, technical_data, holder_pct, previous)

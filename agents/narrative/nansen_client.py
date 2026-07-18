@@ -3,10 +3,21 @@ Cliente Nansen API v1 — smart money net flow por token.
 Endpoint y schema verificados en vivo: POST /api/v1/smart-money/netflow
 Auth header verificado: "apikey" (minúsculas).
 
-Nansen solo cubre tokens con contrato en chains EVM/Solana. Para activos
-nativos de layer-1 sin contrato propio (ej. XRP, HBAR, BTC, SOL nativo,
-ADA, DOT, ATOM) no hay cobertura — get_smart_money() retorna netflow=None
-sin error, mismo patrón "None silencioso" que agents/monitor/onchain_client.py.
+Nansen cubre tokens con contrato en chains EVM/Solana vía resolve_contract().
+Para activos nativos de layer-1 sin contrato propio (ej. XRP, HBAR, BTC, ADA,
+DOT, ATOM) no hay cobertura — get_smart_money() retorna netflow=None sin
+error, mismo patrón "None silencioso" que agents/monitor/onchain_client.py.
+
+SOL nativo es un caso especial: no tiene contrato SPL propio (por eso
+resolve_contract() devuelve None para coingecko_id="solana"), pero SÍ está
+indexado en el endpoint de netflow bajo la dirección de wrapped-SOL
+(So11111111111111111111111111111111111111112) siempre que se pase el filtro
+include_native_tokens=true — ver _NATIVE_TOKEN_OVERRIDE. Confirmado en vivo
+2026-07-18: con ese filtro, SOL aparece con market cap real (~$44B) y netflow
+real. ETH nativo NO tiene equivalente en este endpoint (probado con 1000 filas
++ include_native_tokens=true, ninguna fila de ETH real, solo un token-scam que
+reusa el símbolo) — por eso no se agrega un override para ETH, sigue sin
+cobertura por esta vía específica.
 
 Resolución de contrato vía CoinGecko /coins/{id} (mismo patrón que
 agents/discovery/exchange_scanner.py.get_eth_contracts), cacheada en Redis 24h
@@ -25,6 +36,12 @@ log = structlog.get_logger(__name__)
 
 _NANSEN_BASE = "https://api.nansen.ai/api/v1"
 _COINGECKO_BASE = "https://api.coingecko.com/api/v3"
+
+# symbol -> (address, chain) para activos nativos sin contrato propio que Nansen
+# SÍ indexa bajo una dirección convencional (ver docstring del módulo).
+_NATIVE_TOKEN_OVERRIDE: dict[str, tuple[str, str]] = {
+    "SOL": ("So11111111111111111111111111111111111111112", "solana"),
+}
 
 
 @dataclass
@@ -111,14 +128,21 @@ class NansenClient:
     ) -> NansenSmartMoney:
         """contract = (address, chain) ya resuelto por el caller (ver resolve_contract) —
         no se resuelve de nuevo acá para no duplicar requests a CoinGecko."""
+        is_native = False
         if contract is None:
-            return NansenSmartMoney(symbol=symbol)
+            contract = _NATIVE_TOKEN_OVERRIDE.get(symbol)
+            if contract is None:
+                return NansenSmartMoney(symbol=symbol)
+            is_native = True
 
         address, chain = contract
+        filters = {"token_address": [address]}
+        if is_native:
+            filters["include_native_tokens"] = True
         try:
             payload = await self._post("/smart-money/netflow", {
                 "chains": [chain],
-                "filters": {"token_address": [address]},
+                "filters": filters,
                 "pagination": {"page": 1, "per_page": 1},
             })
         except Exception as e:

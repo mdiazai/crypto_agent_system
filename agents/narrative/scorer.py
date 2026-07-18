@@ -36,12 +36,22 @@ class NarrativeScorer:
         holder_concentration_pct: Optional[float] = None,
         alt_rank_change: Optional[float] = None,
         holder_concentration_change: Optional[float] = None,
+        onchain_coverage_available: bool = True,
     ) -> NarrativeScore:
         narrative, narrative_notes = self._score_narrative(lc_data, cp_data, alt_rank_change)
-        onchain, onchain_notes = self._score_onchain(nansen_data, holder_concentration_change)
+        onchain, onchain_notes = self._score_onchain(
+            nansen_data, holder_concentration_pct, holder_concentration_change
+        )
         technical, technical_notes = self._score_technical(technical_data)
 
-        combined = narrative + onchain + technical
+        if onchain_coverage_available:
+            combined = narrative + onchain + technical
+        else:
+            # Token sin cobertura Nansen posible (L1 nativo sin contrato ni override,
+            # ver research_agent.NO_ONCHAIN_COVERAGE) -- redistribuir el peso onchain
+            # (40pts) proporcionalmente a narrativa (35->50) y tecnico (25->50) para no
+            # dejarlos con un techo estructural de 60/100 pese a senales fuertes.
+            combined = min(narrative * (50 / 35) + technical * (50 / 25), 100.0)
         notes = narrative_notes + onchain_notes + technical_notes
 
         return NarrativeScore(
@@ -87,8 +97,12 @@ class NarrativeScorer:
 
     @staticmethod
     def _score_onchain(
-        nansen_data: NansenSmartMoney, holder_concentration_change: Optional[float]
+        nansen_data: NansenSmartMoney,
+        holder_concentration_pct: Optional[float],
+        holder_concentration_change: Optional[float],
     ) -> tuple[float, list[str]]:
+        # Umbrales recalibrados 2026-07-18: los originales ($100K/$1M) dejaban en 0 a
+        # inflows reales de este universo (ej. UNI $91.8K/24h quedaba justo debajo).
         score = 0.0
         notes: list[str] = []
 
@@ -97,8 +111,14 @@ class NarrativeScorer:
             if inflow > 1_000_000:
                 score += 20
                 notes.append(f"Smart money: +${inflow / 1e6:.1f}M")
-            elif inflow > 100_000:
-                score += 12
+            elif inflow > 200_000:
+                score += 15
+                notes.append(f"Smart money: +${inflow / 1e3:.0f}K")
+            elif inflow > 50_000:
+                score += 8
+                notes.append(f"Smart money: +${inflow / 1e3:.0f}K")
+            elif inflow > 20_000:
+                score += 4
                 notes.append(f"Smart money: +${inflow / 1e3:.0f}K")
 
         if holder_concentration_change is not None:
@@ -109,7 +129,18 @@ class NarrativeScorer:
                 score += 10
                 notes.append(f"Concentración holders subiendo (Δ{holder_concentration_change:.1f}pp)")
 
-        return score, notes
+        # Señal adicional sobre el NIVEL absoluto de concentración (no solo el cambio) --
+        # antes se descartaba un dato real ya obtenido (ej. MATIC 80%, ONDO 70%) porque
+        # no había ciclo previo con el que compararlo. Se suma, no reemplaza, al delta.
+        if holder_concentration_pct is not None:
+            if holder_concentration_pct > 60:
+                score += 8
+                notes.append(f"Concentración holders alta: {holder_concentration_pct:.0f}%")
+            elif holder_concentration_pct > 40:
+                score += 4
+                notes.append(f"Concentración holders moderada: {holder_concentration_pct:.0f}%")
+
+        return min(score, 40.0), notes
 
     @staticmethod
     def _score_technical(technical_data: TechnicalSnapshot) -> tuple[float, list[str]]:

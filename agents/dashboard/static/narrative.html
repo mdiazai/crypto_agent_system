@@ -173,6 +173,7 @@
                   <span class="px-2 py-0.5 rounded-full text-xs font-bold"
                     :class="scoreBadge(c.combined_score)"
                     x-text="(c.combined_score ?? 0).toFixed(0)"></span>
+                  <span x-show="isRebalanced(c)" class="text-xs text-slate-600 ml-1" title="Sin cobertura onchain -- recalculado como Narrativa 50 + Tecnico 50">(rebalanceado)</span>
                 </td>
                 <td class="text-slate-400" x-text="(c.narrative_score ?? 0).toFixed(0) + '/35'"></td>
                 <td class="text-slate-400">
@@ -326,6 +327,14 @@ function narrativeSwing() {
       if (score > 80) return 'bg-emerald-900/30 text-emerald-400 border border-emerald-800/50';
       if (score >= 60) return 'bg-amber-900/30 text-amber-400 border border-amber-800/50';
       return 'bg-slate-800 text-slate-500 border border-slate-700';
+    },
+
+    isRebalanced(c) {
+      // Tokens sin cobertura Nansen posible (L1 nativo) se recalculan como
+      // Narrativa 50 + Tecnico 50 en vez de Narrativa+Onchain+Tecnico -- el
+      // combinado ya no coincide con la suma simple de las 3 columnas.
+      const raw = (c.narrative_score ?? 0) + (c.onchain_score ?? 0) + (c.technical_score ?? 0);
+      return Math.abs((c.combined_score ?? 0) - raw) > 0.5;
     },
 
     gatePct(val, required) {
