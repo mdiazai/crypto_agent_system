@@ -1,3 +1,9 @@
+> **Nota (2026-07-19):** este archivo es la narrativa de construcción original (líneas 1-828)
+> más 37 sesiones operativas (línea 829 en adelante) que **también fueron copiadas** con tag
+> `[crypto_agent]` a la Bitácora central del Lab (`/opt/11mkeys_lab/Bitacora.md`). Desde esta
+> fecha, las sesiones NUEVAS de este proyecto se registran únicamente en la Bitácora central —
+> este archivo queda como está, sin más entradas nuevas al final.
+
 # Bitácora de Construcción — Crypto Agent System
 
 > Registro cronológico del proceso completo de diseño, construcción y deploy de un sistema
