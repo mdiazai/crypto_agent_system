@@ -11,6 +11,7 @@ Estrategia de health check sin modificar los agentes:
   - Dashboard → HTTP GET /health en puerto 8001
 """
 import asyncio
+import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 import httpx
@@ -29,6 +30,9 @@ log = structlog.get_logger(__name__)
 _HEALTHY_WINDOW = timedelta(minutes=10)
 _DEGRADED_WINDOW = timedelta(minutes=30)
 _MAX_RESTARTS = 3
+
+_ALERT_COOLDOWN_KEY_PREFIX = "supervisor:alert_cooldown:"
+_ALERT_COOLDOWN_SECONDS = 3600  # no reenviar la misma alerta más de 1 vez por hora
 
 
 class AgentSupervisor:
@@ -91,16 +95,33 @@ class AgentSupervisor:
                 log.exception("supervisor.monitor_error")
 
     async def _notify_unhealthy(self, agents: list[AgentHealth]) -> None:
-        """Envía alerta Telegram cuando un agente no responde."""
+        """Envía alerta Telegram cuando un agente no responde (máx. 1 vez por hora
+        para el mismo conjunto de agentes — ver _ALERT_COOLDOWN_SECONDS)."""
+        names = sorted(a.name for a in agents)
+        alert_hash = hashlib.sha256(",".join(names).encode("utf-8")).hexdigest()[:16]
+
+        if self._redis:
+            cooldown_key = _ALERT_COOLDOWN_KEY_PREFIX + alert_hash
+            if await self._redis.exists(cooldown_key):
+                log.info(
+                    "supervisor.alert_suppressed_cooldown",
+                    agents=names,
+                    alert_hash=alert_hash,
+                )
+                return
+
         try:
             from telegram import Bot
             bot = Bot(token=settings.telegram_bot_token.get_secret_value())
-            names = ", ".join(a.name for a in agents)
             await bot.send_message(
                 chat_id=settings.telegram_chat_id,
-                text=f"⚠️ <b>Agentes sin actividad</b>\n{names}\nVerifica los contenedores.",
+                text=f"⚠️ <b>Agentes sin actividad</b>\n{', '.join(names)}\nVerifica los contenedores.",
                 parse_mode="HTML",
             )
+            if self._redis:
+                await self._redis.setex(
+                    _ALERT_COOLDOWN_KEY_PREFIX + alert_hash, _ALERT_COOLDOWN_SECONDS, "1"
+                )
         except Exception as e:
             log.error("supervisor.notify_failed", error=str(e))
 
@@ -226,7 +247,7 @@ class AgentSupervisor:
     async def _check_dashboard(self) -> AgentHealth:
         try:
             async with httpx.AsyncClient(timeout=5) as client:
-                resp = await client.get("http://dashboard:8001/health")
+                resp = await client.get(settings.dashboard_health_url)
                 if resp.status_code == 200:
                     return AgentHealth(
                         name="dashboard",

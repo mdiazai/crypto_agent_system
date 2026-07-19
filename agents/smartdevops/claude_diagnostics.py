@@ -44,6 +44,13 @@ REGLAS DE DIAGNÓSTICO — aplicar en orden:
 5. executor_heartbeat=missing (executor sin responder):
    → severity=warn, fix_command: docker restart crypto_agent_system-executor-1
 
+5b. dashboard: es un servidor web pasivo — NO tiene ni tendrá heartbeat propio,
+   nunca lo evalúes por ausencia de heartbeat. Su salud se determina EXCLUSIVAMENTE
+   por el resultado del HTTP check (sección DASHBOARD del snapshot):
+   → dashboard.ok=true (200) → no es un problema, no lo menciones como inactividad
+   → dashboard.ok=false (sin respuesta / error / status≠200):
+     severity=warn, fix_command: docker restart crypto_agent_system-dashboard-1
+
 6. Logs con ERROR/CRITICAL/Exception repetidos (> 5 en últimas 50 líneas = problema real):
    → severity=warn, fix_command: docker restart del servicio afectado
 
@@ -181,6 +188,14 @@ class ClaudeDiagnostics:
             lines.append(f"  discovery.last_scan: ERROR — {act['discovery_db_error']}")
         else:
             lines.append("  discovery.last_scan: sin datos")
+
+        lines.append("\n=== DASHBOARD (HTTP check, sin heartbeat) ===")
+        dash = snapshot.get("dashboard", {})
+        if dash.get("ok"):
+            lines.append(f"  OK — HTTP {dash.get('status_code')}")
+        else:
+            detail = dash.get("error") or f"HTTP {dash.get('status_code', '?')}"
+            lines.append(f"  ERROR: {detail} ⚠️")
 
         if rag_ctx:
             lines.append("\n=== APRENDIZAJES LAB MEMORY ===")

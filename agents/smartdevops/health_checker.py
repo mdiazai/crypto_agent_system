@@ -78,6 +78,7 @@ class HealthChecker:
         snapshot["postgres"] = await self._check_postgres()
         snapshot["redis_health"] = await self._check_redis()
         snapshot["agent_activity"] = await self._check_agent_activity()
+        snapshot["dashboard"] = await self._check_dashboard()
 
         return snapshot
 
@@ -161,6 +162,16 @@ class HealthChecker:
                 "used_memory_human": info.get("used_memory_human", "?"),
                 "maxmemory_human": info.get("maxmemory_human", "0B"),
             }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    async def _check_dashboard(self) -> dict:
+        """Dashboard es un servidor web pasivo: no escribe heartbeat propio.
+        Su salud se determina exclusivamente por HTTP check (200 = sano)."""
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(settings.dashboard_health_url)
+            return {"ok": r.status_code == 200, "status_code": r.status_code}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 

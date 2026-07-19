@@ -110,6 +110,14 @@ class Settings(BaseSettings):
     sentry_dsn: str = Field(default="")
     prometheus_port: int = Field(8000)
 
+    # ── Health checks internos ────────────────────────────────────────────────
+    # Dashboard es un servidor web pasivo (sin heartbeat propio) — se healthchequea
+    # por HTTP. Nombre completo del container: "dashboard" solo NO resuelve en la
+    # red Docker (crypto_agent_network no define ese alias corto).
+    dashboard_health_url: str = Field(
+        "http://crypto_agent_system-dashboard-1:8001/health"
+    )
+
     @property
     def mexc_capital_usd(self) -> float:
         return self.capital_total_usd * (self.mexc_allocation_pct / 100)

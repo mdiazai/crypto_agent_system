@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 
@@ -11,6 +12,9 @@ log = structlog.get_logger(__name__)
 
 REDIS_PENDING_KEY = "smartdevops:pending_command"
 REDIS_TTL = 3600  # 1 hora
+
+REDIS_COOLDOWN_PREFIX = "smartdevops:alert_cooldown:"
+ALERT_COOLDOWN_SECONDS = 3600  # no reenviar la misma alerta más de 1 vez por hora
 
 _SEVERITY_EMOJI = {"ok": "✅", "warn": "⚠️", "critical": "🚨"}
 
@@ -56,9 +60,42 @@ class TelegramNotifier:
         text = f"🤖 *SmartDevops* ✅\n\n_Ciclo \\#{run_count}: sistema nominal_\n_{_esc(diagnosis[:200])}_"
         await self._send_message(text)
 
+    @staticmethod
+    def _alert_hash(severity: str, diagnosis: str, fix_command: str | None) -> str:
+        # fix_command es más estable entre ciclos que diagnosis (que Claude
+        # redacta de nuevo cada vez) — es la mejor señal de "mismo problema".
+        identity = fix_command or diagnosis
+        raw = f"{severity}:{identity}".encode("utf-8")
+        return hashlib.sha256(raw).hexdigest()[:16]
+
+    async def _is_in_cooldown(self, alert_hash: str) -> bool:
+        client = aioredis.from_url(settings.redis_url, decode_responses=True)
+        try:
+            return await client.exists(REDIS_COOLDOWN_PREFIX + alert_hash) == 1
+        finally:
+            await client.aclose()
+
+    async def _mark_alert_sent(self, alert_hash: str) -> None:
+        client = aioredis.from_url(settings.redis_url, decode_responses=True)
+        try:
+            await client.setex(
+                REDIS_COOLDOWN_PREFIX + alert_hash, ALERT_COOLDOWN_SECONDS, "1"
+            )
+        finally:
+            await client.aclose()
+
     async def send_proposal(
         self, severity: str, diagnosis: str, fix_command: str | None
     ) -> None:
+        alert_hash = self._alert_hash(severity, diagnosis, fix_command)
+        if await self._is_in_cooldown(alert_hash):
+            log.info(
+                "telegram_notifier.alert_suppressed_cooldown",
+                severity=severity,
+                alert_hash=alert_hash,
+            )
+            return
+
         emoji = _SEVERITY_EMOJI.get(severity, "⚠️")
         lines = [
             f"🤖 *SmartDevops Diagnosis* {emoji}",
@@ -87,6 +124,7 @@ class TelegramNotifier:
             reply_markup = None
 
         await self._send_message("\n".join(lines), reply_markup=reply_markup)
+        await self._mark_alert_sent(alert_hash)
 
     async def _send_message(
         self, text: str, reply_markup: str | None = None
