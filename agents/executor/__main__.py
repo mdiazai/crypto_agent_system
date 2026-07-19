@@ -1,5 +1,9 @@
 import asyncio
-import sentry_sdk
+
+try:
+    import sentry_sdk
+except ImportError:
+    sentry_sdk = None
 
 from shared.config import settings
 from shared.utils import configure_logging
@@ -9,7 +13,7 @@ from .executor_agent import ExecutorAgent
 def main() -> None:
     configure_logging()
 
-    if settings.sentry_dsn:
+    if settings.sentry_dsn and sentry_sdk:
         sentry_sdk.init(dsn=settings.sentry_dsn, traces_sample_rate=0.1)
 
     if not settings.paper_trading:
