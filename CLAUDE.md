@@ -89,27 +89,31 @@ n8n · Claude API · Telegram bots · PostgreSQL · Redis · Docker · Python ·
 | crypto_agent_system-smartdevops-1 | Diagnóstico IA 30min + fixes propuestos | — | — | 8766465123 (correcto)¹ | ok |
 | crypto_agent_system-narrative-research-1 | Narrative Swing — research agent | — | — | 8766465123 (correcto) | ok |
 | crypto_agent_system-discovery-1 | Descubrimiento de tokens (1×/día 02:00 UTC) | — | — | 8766465123 (correcto) | ok |
-| crypto_agent_system-monitor-1 | Monitoreo precio/volumen (~5 min) | — | 2 semanas | **8141614556 (VIEJO — pendiente recrear)** | ⚠️ ver nota |
-| crypto_agent_system-detector-1 | Detección de señales | — | 11 días | **8141614556 (VIEJO — pendiente recrear)** | ⚠️ ver nota |
+| crypto_agent_system-monitor-1 | Monitoreo precio/volumen (~5 min) | — | recreado 2026-07-19 | 8766465123 (correcto) | ok |
+| crypto_agent_system-detector-1 | Detección de señales | — | recreado 2026-07-19 | 8766465123 (correcto) | ok |
 | crypto_agent_system-scorer-1 | Scoring combinado | — | 2 días | 8766465123 (correcto) | ok |
-| crypto_agent_system-executor-1 | Ejecución de trades (paper) | — | 11 días | **8141614556 (VIEJO — pendiente recrear)** | ⚠️ ver nota |
+| crypto_agent_system-executor-1 | Ejecución de trades (paper) | — | recreado 2026-07-19 | 8766465123 (correcto) | ok |
 | crypto_agent_system-learner-1 | Aprendizaje post-trade | — | 2 días | 8766465123 (correcto) | ok |
 | focus_guardian | Check-ins personales (Focus Guardian) | — | 3 semanas | — (usa FOCUS_BOT_TOKEN) | ok |
 
 ¹ smartdevops usa además `SMARTDEVOPS_BOT_TOKEN` (8141614556) intencionalmente — ese es su bot propio.
 
-**⚠️ Pendiente (detectado 2026-07-19, no tocado aún):** `monitor-1`, `detector-1` y `executor-1`
-tienen el token viejo de Telegram (8141614556, previo a la separación de bots del 2026-07-08 —
-Lección 8) en su entorno. Mismo bug que causó que el orchestrator mandara sus alertas via el bot
-de SmartDevops (ver Bitácora, sesión 2026-07-18/19). No se tocaron porque no está confirmado que
-estos tres agentes efectivamente *envíen* Telegram directamente (podrían solo leer `settings`
-sin usar ese campo) — confirmar antes de recrear con `stop+rm+run --env-file`.
+**✅ Resuelto (2026-07-19):** `monitor-1`, `detector-1` y `executor-1` tenían el token viejo de
+Telegram (8141614556) en su entorno — confirmado inofensivo (ninguno de los tres importa nada
+relacionado a Telegram, el campo es inerte, solo obligatorio para instanciar `Settings`).
+Recreados igual con `stop+rm+run --env-file` para no arrastrar `.env` desactualizado a futuro.
+Al recrear `detector` y `executor` (imágenes del 2026-07-04) apareció un bug real y distinto:
+`ModuleNotFoundError: sentry_sdk` primero, luego `pydantic_settings` — imágenes stale, mismo
+patrón que el orchestrator (Lección 9: cache de build ignora cambios de `requirements.txt`).
+Fix: guard `try/except ImportError` en `sentry_sdk` (ya prescrito en Lección 10, ahora aplicado
+también a `monitor`/`detector`/`executor`, no solo a los que ya lo tenían) + rebuild `--no-cache`
+de `detector` y `executor` (`monitor` no lo necesitó, su imagen ya tenía las deps al día).
 
 ### Bots de Telegram — qué token, quién lo usa, qué canal
 | Bot | Var en .env | Usado por | Canal |
 |---|---|---|---|
-| @CryptoAgentBot (bot_id 8766465123) | TELEGRAM_BOT_TOKEN | scorer, learner, monitor*, orchestrator, dashboard, discovery, narrative-research | Trading (Criminal Pumps ⚡ + Narrative Swing 🌊) — notificaciones y consultas (mismo webhook que PM Bot, ver "PM Agent") |
-| @ElevenMkeys_SmartDevops_bot (8141614556) | SMARTDEVOPS_BOT_TOKEN | smartdevops-1 (correcto); monitor/detector/executor (INCORRECTO, pendiente) | Diagnóstico IA — botones sd_approve/sd_ignore |
+| @CryptoAgentBot (bot_id 8766465123) | TELEGRAM_BOT_TOKEN | scorer, learner, monitor, detector, executor, orchestrator, dashboard, discovery, narrative-research | Trading (Criminal Pumps ⚡ + Narrative Swing 🌊) — notificaciones y consultas (mismo webhook que PM Bot, ver "PM Agent") |
+| @ElevenMkeys_SmartDevops_bot (8141614556) | SMARTDEVOPS_BOT_TOKEN | smartdevops-1 (único uso correcto) | Diagnóstico IA — botones sd_approve/sd_ignore |
 | @ElevenMkeys_PM_Bot (8818804931) | — (n8n, no en .env de containers) | n8n workflow PM Agent | Gestión del Lab (tareas, proyectos, finanzas, memoria) |
 | @ElevenMkeys_Advisor_bot | ADVISOR_BOT_TOKEN | n8n workflow Strategy Advisor | Diagnóstico y escalado a Task Runner |
 | @ElevenMkeys_MonkeyBrain_bot | MONKEY_BRAIN_BOT_TOKEN | n8n workflow Monkey Brain | Captura de insights |
@@ -436,6 +440,19 @@ LIMIT 15;
     `alembic.util.messaging: Can't locate revision identified by 'XXXX'` con la DB ya en esa
     revisión (aplicada por otro servicio) pero la imagen sin el archivo. Antes de cualquier
     `stop+rm+run` en un container con semanas de uptime, considerar rebuildear primero.
+24. Extensión de Lección 10 (`import sentry_sdk` sin guardia): el guard `try/except
+    ImportError` se había aplicado en su momento solo a los agentes donde el bug ya se había
+    manifestado, no a los 4 nombrados explícitamente en la lección (`detector/discovery/
+    executor/monitor`). Al recrear `detector` y `executor` (containers de semanas de uptime,
+    imágenes del 2026-07-04) el bug apareció recién ahí — y en cascada, DESPUÉS de arreglar
+    `sentry_sdk` apareció un segundo `ModuleNotFoundError: pydantic_settings`, síntoma de que
+    la imagen entera estaba stale, no solo un import puntual. Regla general: cuando un
+    `stop+rm+run` en un container de larga vida revela UN `ModuleNotFoundError`, no asumir que
+    es el único — la imagen puede tener varias dependencias desactualizadas en cascada;
+    rebuildear `--no-cache` con el `requirements.txt` actual en vez de parchear import por
+    import. Aplicar el guard de Lección 10 preventivamente a los 4 agentes nombrados,
+    aunque no hayan fallado todavía (ej. `monitor` no falló esta vez, pero tiene el mismo
+    import sin protección — solo tuvo suerte con el estado de su imagen).
 
 ## Estado del sistema (actualizado 2026-07-11)
 - Monitor: 81 tokens activos, ciclo ~5 min

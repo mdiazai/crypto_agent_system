@@ -7583,3 +7583,52 @@ cumplido.
 - Decidir sobre los 3 containers con token viejo (`monitor`, `detector`, `executor`) — no
   tocados esta sesión.
 - Commit + push: pendiente de aprobación explícita de Marce (protocolo).
+
+
+---
+
+## Sesión 2026-07-19 (continuación) — [lab][crypto_agent] Fix de los 3 containers pendientes
+
+### Contexto
+Cierre del pendiente dejado en la sesión B8: `monitor-1`, `detector-1` y `executor-1` con el
+token viejo de Telegram en su entorno.
+
+### Diagnóstico previo a tocar nada
+Ninguno de los tres importa nada relacionado a Telegram/notifier — el token viejo es inerte,
+solo presente porque `Settings` (Pydantic) lo exige como campo obligatorio. Sin bug de
+comportamiento activo. Se recrearon igual por higiene (`.env` desactualizado en general, no
+solo el token) y para no repetir la sorpresa del orchestrator a futuro.
+
+### Bug real encontrado (no esperado)
+Al recrear `detector-1`: crash loop, `ModuleNotFoundError: sentry_sdk` — `agents/detector/
+__main__.py` hace `import sentry_sdk` sin guardia, exactamente el patrón que la Lección 10 ya
+documentaba como riesgo para `detector/discovery/executor/monitor`, pero el guard solo se
+había aplicado donde ya había fallado antes (`smartdevops`), no en estos cuatro. `monitor` y
+`executor` tenían el mismo import sin protección — `monitor` no falló esta vez solo porque su
+imagen específica ya tenía `sentry_sdk` instalado.
+
+Aplicado el guard (`try/except ImportError`) a `monitor`, `detector` y `executor`. Al
+reintentar `detector`, apareció un SEGUNDO `ModuleNotFoundError: pydantic_settings` — señal de
+que la imagen entera estaba stale (mismo patrón que el orchestrator, Lección 9: cache de build
+ignora cambios de `requirements.txt`). Rebuild `--no-cache` de `detector` y `executor`
+(imágenes del 2026-07-04) resolvió ambos. `monitor` (imagen del 2026-06-26, curiosamente más
+vieja mbut con las deps al día) no necesitó rebuild.
+
+### Fix aplicado
+- `agents/monitor/__main__.py`, `agents/detector/__main__.py`, `agents/executor/__main__.py`:
+  guard `try/except ImportError` en `sentry_sdk` (patrón ya usado en smartdevops).
+- Rebuild `--no-cache` de `crypto_agent_system-detector` y `crypto_agent_system-executor`.
+- Los tres containers recreados con `stop+rm+run --env-file` fresco.
+
+### Verificación
+Los 16 containers del VPS: ninguno en estado `Restarting`. `monitor`: ciclo completo, 29
+tokens, 0 errores. `detector`: escuchando en Redis (`channel:monitor:pump_signal`,
+`channel:learner:feedback`) sin errores. `executor`: `paper_trading=true`, `open_positions=0`,
+suscripto a `channel:detector:scored_token`, sin errores.
+
+### Lección nueva agregada a CLAUDE.md
+- **24:** extensión de Lección 10 — un `ModuleNotFoundError` al recrear un container de larga
+  vida puede ser el primero de varios en cascada (imagen entera stale, no un import puntual).
+  Rebuildear `--no-cache` en vez de parchear import por import. Aplicar guards conocidos
+  (Lección 10) preventivamente a TODOS los agentes nombrados en la lección, no solo donde ya
+  falló.
