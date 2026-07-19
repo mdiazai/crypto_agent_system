@@ -1,5 +1,5 @@
 # CLAUDE.md — 11mkeys_lab
-## Actualizado: 2026-07-16
+## Actualizado: 2026-07-19
 
 ## Descripción
 Stack de automatización del 11Mkeys AI Lab.
@@ -73,6 +73,55 @@ n8n · Claude API · Telegram bots · PostgreSQL · Redis · Docker · Python ·
 - PATRÓN OBLIGATORIO para bots nuevos: nunca n8n-nodes-base.telegramTrigger —
   usar Webhook genérico + secret propio (ver Lección 15). Webhooks y secrets
   vigentes de cada bot están en su sección dentro de "Agentes operativos".
+
+## INVENTARIO DE INFRAESTRUCTURA (verificado 2026-07-19 — `docker ps -a` completo)
+
+### Containers Docker (16 reales)
+| Container | Función | Puerto | Uptime | Token Telegram | Estado |
+|---|---|---|---|---|---|
+| crypto_agent_system-postgres-1 | DB (lab_11mkeys) | 5432 | 6 semanas | — | healthy |
+| crypto_agent_system-redis-1 | Cache / bus / heartbeats | 6379 | 6 semanas | — | healthy |
+| crypto_agent_system-n8n-1 | Orquestación workflows | 5678 | 5 días | — | ok |
+| crypto_agent_system-grafana-1 | Dashboards métricas | 3000 | 6 semanas | — | ok — sin alert rules configuradas |
+| crypto_agent_system-prometheus-1 | Métricas | 8000→9090 | 6 semanas | — | ok — sin alerting rules |
+| crypto_agent_system-orchestrator-1 | Supervisor liviano 60s + market analysis | 8080 | recreado 2026-07-19 | 8766465123 (correcto) | ok |
+| crypto_agent_system-dashboard-1 | Dashboard web (JWT) | 8001 | — | 8766465123 (correcto) | ok |
+| crypto_agent_system-smartdevops-1 | Diagnóstico IA 30min + fixes propuestos | — | — | 8766465123 (correcto)¹ | ok |
+| crypto_agent_system-narrative-research-1 | Narrative Swing — research agent | — | — | 8766465123 (correcto) | ok |
+| crypto_agent_system-discovery-1 | Descubrimiento de tokens (1×/día 02:00 UTC) | — | — | 8766465123 (correcto) | ok |
+| crypto_agent_system-monitor-1 | Monitoreo precio/volumen (~5 min) | — | 2 semanas | **8141614556 (VIEJO — pendiente recrear)** | ⚠️ ver nota |
+| crypto_agent_system-detector-1 | Detección de señales | — | 11 días | **8141614556 (VIEJO — pendiente recrear)** | ⚠️ ver nota |
+| crypto_agent_system-scorer-1 | Scoring combinado | — | 2 días | 8766465123 (correcto) | ok |
+| crypto_agent_system-executor-1 | Ejecución de trades (paper) | — | 11 días | **8141614556 (VIEJO — pendiente recrear)** | ⚠️ ver nota |
+| crypto_agent_system-learner-1 | Aprendizaje post-trade | — | 2 días | 8766465123 (correcto) | ok |
+| focus_guardian | Check-ins personales (Focus Guardian) | — | 3 semanas | — (usa FOCUS_BOT_TOKEN) | ok |
+
+¹ smartdevops usa además `SMARTDEVOPS_BOT_TOKEN` (8141614556) intencionalmente — ese es su bot propio.
+
+**⚠️ Pendiente (detectado 2026-07-19, no tocado aún):** `monitor-1`, `detector-1` y `executor-1`
+tienen el token viejo de Telegram (8141614556, previo a la separación de bots del 2026-07-08 —
+Lección 8) en su entorno. Mismo bug que causó que el orchestrator mandara sus alertas via el bot
+de SmartDevops (ver Bitácora, sesión 2026-07-18/19). No se tocaron porque no está confirmado que
+estos tres agentes efectivamente *envíen* Telegram directamente (podrían solo leer `settings`
+sin usar ese campo) — confirmar antes de recrear con `stop+rm+run --env-file`.
+
+### Bots de Telegram — qué token, quién lo usa, qué canal
+| Bot | Var en .env | Usado por | Canal |
+|---|---|---|---|
+| @CryptoAgentBot (bot_id 8766465123) | TELEGRAM_BOT_TOKEN | scorer, learner, monitor*, orchestrator, dashboard, discovery, narrative-research | Trading (Criminal Pumps ⚡ + Narrative Swing 🌊) — notificaciones y consultas (mismo webhook que PM Bot, ver "PM Agent") |
+| @ElevenMkeys_SmartDevops_bot (8141614556) | SMARTDEVOPS_BOT_TOKEN | smartdevops-1 (correcto); monitor/detector/executor (INCORRECTO, pendiente) | Diagnóstico IA — botones sd_approve/sd_ignore |
+| @ElevenMkeys_PM_Bot (8818804931) | — (n8n, no en .env de containers) | n8n workflow PM Agent | Gestión del Lab (tareas, proyectos, finanzas, memoria) |
+| @ElevenMkeys_Advisor_bot | ADVISOR_BOT_TOKEN | n8n workflow Strategy Advisor | Diagnóstico y escalado a Task Runner |
+| @ElevenMkeys_MonkeyBrain_bot | MONKEY_BRAIN_BOT_TOKEN | n8n workflow Monkey Brain | Captura de insights |
+| @ElevenMkeys_CodeAgent_bot | — (n8n) | n8n workflow Code Agent | Fixes de código con aprobación |
+| @ElevenMkeys_Focus_bot | FOCUS_BOT_TOKEN | focus_guardian | Check-ins personales |
+
+*monitor tiene el token viejo — en teoría debería usar TELEGRAM_BOT_TOKEN como scorer/learner.
+
+### Workflows n8n activos (10, verificado 2026-07-19)
+Ver detalle completo en "Agentes operativos" abajo. Todos `active=true`:
+Finance Alerts · Task Runner · Strategy Advisor · PM Agent · Code Agent · Advisor Report ·
+Advisor Notify · SmartDevops Agent · Weekly Board Agent · Monkey Brain.
 
 ## Agentes operativos — Bots y Workflows
 
@@ -150,6 +199,25 @@ n8n · Claude API · Telegram bots · PostgreSQL · Redis · Docker · Python ·
 - Función: Ciclo 30min, Docker API + PostgreSQL + Redis, propone fixes con sd_approve/sd_ignore
 - Historial en: diagnostics_log (PostgreSQL)
 - Container standalone (no en docker-compose.yml) — recrear con docker run + --env-file
+
+### Orchestrator (supervisor liviano — no tiene bot propio)
+- Container: `crypto_agent_system-orchestrator-1`, puerto 8080, red `crypto_agent_network`
+- No bind-mount de `alembic/` ni `alembic.ini` — quedan horneados en la imagen (`COPY` en el
+  Dockerfile). Si se agrega una migración nueva, esta imagen queda desactualizada en silencio
+  hasta el próximo restart/recreate — rebuildear con `--no-cache` junto con cualquier migración
+  nueva, no solo cuando cambia `requirements.txt` (ver Lección 23).
+- Función: `orchestrator/agent_supervisor.py` — supervisor liviano (sin LLM) que chequea
+  actividad de discovery/monitor/detector/scorer/executor/learner/dashboard vía DB/Redis/HTTP
+  cada 60s (`monitor_loop`, intencional — es barato, sin costo de API). Manda alerta Telegram
+  (`TELEGRAM_BOT_TOKEN`, no el de SmartDevops) con cooldown de 1h (`supervisor:alert_cooldown:*`
+  en Redis) cuando algo queda `unhealthy`.
+- División de roles con SmartDevops: orchestrator detecta caídas rápido y barato (60s, sin IA);
+  SmartDevops diagnostica causas y propone fixes cada 30 min (con Claude, más caro/lento).
+- Dashboard health check: `settings.dashboard_health_url` (compartido con SmartDevops) —
+  `http://crypto_agent_system-dashboard-1:8001/health`. El hostname corto `dashboard` NO
+  resuelve en `crypto_agent_network` — usar siempre el nombre completo del container.
+- Historial: ver sesión 2026-07-18/19 en Bitácora — este servicio no estaba documentado acá y
+  fue la fuente real de un spam de alertas que se le atribuyó a SmartDevops por varias sesiones.
 
 ### Focus Guardian
 - Bot: @ElevenMkeys_Focus_bot
@@ -348,6 +416,26 @@ LIMIT 15;
     vacío) sin error visible, silenciosamente no borraba nada. Detectado 2026-07-17
     construyendo el patrón de estado pendiente en Redis del Strategy Advisor
     (advisor:pending:{chat_id}, mismo patrón que mb:state:{chat_id} de Monkey Brain).
+
+21. Al investigar "qué está mandando este mensaje/alerta", pedir el TEXTO LITERAL (copy-paste
+    exacto, con emojis/formato) antes de seguir descartando candidatos por código es más rápido
+    que adivinar — el formato exacto de un mensaje fijo/templateado identifica al emisor real
+    de inmediato y evita atribuírselo por asociación al servicio "obvio" (ej. un mensaje de
+    alerta genérico atribuido a SmartDevops porque "suena a eso", cuando en realidad venía de
+    un servicio de supervisión distinto y sin documentar). Detectado 2026-07-18/19.
+22. Al buscar la fuente de algo inesperado, correr `docker ps -a` completo (sin filtrar por
+    nombre esperado) — puede haber containers corriendo hace semanas sin estar documentados en
+    este archivo. El VPS tenía 15 containers reales; `orchestrator` (puerto 8080, agente
+    supervisor propio con sus propias alertas Telegram) no figuraba en ningún lado.
+23. `docker restart` no relee `.env` (Lección 8) — pero además, si un container lleva mucho
+    tiempo sin recrearse, un `stop+rm+run` para picar el `.env` correcto puede exponer un
+    SEGUNDO problema latente: código/migraciones nuevas que nunca se ejecutaron porque el
+    proceso nunca volvió a arrancar desde cero. Si el Dockerfile del servicio hornea `alembic/`
+    en la imagen (no bind-mount), cualquier migración agregada después del último build queda
+    invisible para ese container hasta un rebuild `--no-cache` — el síntoma es
+    `alembic.util.messaging: Can't locate revision identified by 'XXXX'` con la DB ya en esa
+    revisión (aplicada por otro servicio) pero la imagen sin el archivo. Antes de cualquier
+    `stop+rm+run` en un container con semanas de uptime, considerar rebuildear primero.
 
 ## Estado del sistema (actualizado 2026-07-11)
 - Monitor: 81 tokens activos, ciclo ~5 min
