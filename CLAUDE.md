@@ -1,5 +1,5 @@
 # CLAUDE.md — 11mkeys_lab
-## Actualizado: 2026-07-19
+## Actualizado: 2026-07-21
 
 ## Descripción
 Stack de automatización del 11Mkeys AI Lab.
@@ -131,11 +131,29 @@ Advisor Notify · SmartDevops Agent · Weekly Board Agent · Monkey Brain.
 
 ### Strategy Advisor
 - Bot: @ElevenMkeys_Advisor_bot
-- Workflows: 7Ohb4fekhWkgfMVE (Telegram, 38 nodos) + mDjJw4IIFJhnZq1j (notify) + mB0dJy17gxM4V3FN (report)
+- Workflows: 7Ohb4fekhWkgfMVE (Telegram, 51 nodos desde B9) + mDjJw4IIFJhnZq1j (notify) + mB0dJy17gxM4V3FN (report)
 - Función: Director de operaciones. Diagnostica el sistema. Escala al Task Runner si detecta fix necesario.
 - Credencial n8n: OnOkrq5xaWWl9e9j
 - Webhook: https://n8n.11mkeys.ai/webhook/advisor-telegram (Webhook genérico, ver Lección 15)
 - Secret: ADVISOR_WEBHOOK_SECRET en .env
+- **Memoria conversacional (B9, 2026-07-20/21):** contexto rodante entre sesiones — NO es un log
+  append-only, es UNA clave en `lab_memory` que Claude reescribe completa en cada turno relevante.
+  - Clave: `advisor_conversation_context` (tipo `estrategica`, agente `strategy_advisor`,
+    proyecto `null` — transversal). Formato: DECISIONES VIGENTES / TEMAS ABIERTOS / PRÓXIMOS
+    PASOS / ÚLTIMO INTERCAMBIO, máx ~2000 caracteres, se sobreescribe entera (no se acumula).
+  - Lectura: nodo `Q Advisor Context` (SSH, `SELECT valor ... LIMIT 1`) insertado en la cadena
+    `SSH Ctx Advisor → Q Advisor Context → Build Advisor Body`; se antepone al prompt como
+    sección "HILO CONVERSACIONAL PREVIO".
+  - Escritura: Claude agrega la clave `context_update` (null si no hubo cambios de estado) al
+    mismo bloque JSON que ya usaba para `type`/`task_spec`. Rama nueva en paralelo desde
+    `Parse Advisor Resp` (no toca la conexión existente a `IF Needs Fix`):
+    `Should Update Context → Prep Conv Context → Write Conv Context` (UPSERT vía
+    `DO $$ UPDATE ... IF NOT FOUND THEN INSERT $$` — no hay índice único en `clave` de
+    `lab_memory`, se evitó agregar uno). Dispara sin importar el camino final de la respuesta
+    (escalar/diagnosticar/directo) porque lee del JSON de la primera llamada a Claude.
+  - Verificado end-to-end con mensajes reales (no simulación): decisión de prueba registrada,
+    recordada en un mensaje separado sin repreguntar, y limpiada — los 3 pasos con
+    `context_update` comportándose correctamente (escribe/null/reescribe).
 
 ### Monkey Brain
 - Bot: @ElevenMkeys_MonkeyBrain_bot

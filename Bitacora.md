@@ -7632,3 +7632,62 @@ suscripto a `channel:detector:scored_token`, sin errores.
   Rebuildear `--no-cache` en vez de parchear import por import. Aplicar guards conocidos
   (Lección 10) preventivamente a TODOS los agentes nombrados en la lección, no solo donde ya
   falló.
+
+
+---
+
+## Sesión 2026-07-20/21 — [lab] B9: Memoria conversacional del Strategy Advisor
+
+### Contexto
+Marce detectó que el Advisor arranca de cero en cada conversación, perdiendo decisiones y
+temas abiertos. Diseño elegido: contexto rodante (una clave en `lab_memory` que se
+sobreescribe completa, no un log append-only que crecería sin límite y metería ruido en el RAG).
+
+### Diagnóstico
+Mapeado el workflow `7Ohb4fekhWkgfMVE` (38 nodos antes de B9). Cadena relevante para mensajes
+libres: `Route Command → SSH System State → SSH Ctx Advisor (RAG) → Build Advisor Body →
+Claude Advisor → Parse Advisor Resp → IF Needs Fix → {Telegram Escalate | IF Needs Diagnosis →
+{...→ Send Advisor + Prep Pending State | Send Advisor directo}}`. El JSON estructurado que ya
+devuelve Claude (`type/confidence/problem_identified/task_spec/diagnostic_command`, patrón
+establecido para el escalado L19-L20) fue la vía natural para sumar `context_update` sin
+introducir un mecanismo paralelo.
+
+### Diseño de inserción (sin tocar conexiones existentes)
+- Lectura: nodo nuevo `Q Advisor Context` (SSH, `SELECT valor ... LIMIT 1`) insertado en la
+  cadena serial `SSH Ctx Advisor → Q Advisor Context → Build Advisor Body` (rewire de 1 sola
+  conexión). Antepone "HILO CONVERSACIONAL PREVIO" al prompt.
+- Escritura: rama nueva **en paralelo** desde `Parse Advisor Resp` (que solo iba a
+  `IF Needs Fix`, conexión intacta): `Should Update Context → Prep Conv Context →
+  Write Conv Context`. Dispara sin importar el camino final de la respuesta porque lee del JSON
+  de la primera llamada a Claude, no de las de diagnóstico.
+- UPSERT en `lab_memory` sin agregar índice único: bloque `DO $$ UPDATE ... IF NOT FOUND THEN
+  INSERT $$` (no había constraint única en `clave` — se evitó el `ALTER TABLE`).
+- Base64 + stdin para el UPDATE (Lección 17 — el contenido es texto libre generado por Claude).
+
+Propuesta completa (JSON de los 4 nodos + diffs de los 2 nodos modificados) mostrada a Marce
+antes de aplicar. Aprobada. PUT aplicado: 47 → 51 nodos, `active:true`, webhook Telegram
+verificado intacto (`getWebhookInfo` con URL correcta, sin re-registro necesario).
+
+### Test end-to-end (con mensajes reales al webhook, no simulación de datos)
+1. "Decidamos algo de prueba: el color oficial del Lab es el verde" → `advisor_conversation_context`
+   escrito correctamente, con la decisión de prueba integrada junto a contexto real ya existente
+   en `lab_memory` (RAG) — Claude combinó ambas fuentes coherentemente.
+2. Mensaje NUEVO y separado ("¿Qué decidimos sobre el color del Lab?"): el Advisor respondió
+   "El color oficial del Lab es el verde. Lo decidiste vos el 21 de julio..." sin repreguntar.
+   `context_update: null` correctamente (intercambio puramente informativo, sin cambio de estado).
+3. Limpieza pedida ("eliminá la decisión de prueba..."): contexto reescrito sin la decisión de
+   prueba, con el resto intacto y el intercambio de limpieza documentado en ÚLTIMO INTERCAMBIO.
+
+Los 3 pasos verificados leyendo directamente `lab_memory` y las ejecuciones reales de n8n
+(`Parse Advisor Resp` output), no solo confiando en que el workflow corrió sin error.
+
+### Qué NO se tocó
+Webhook, `Validate & Normalize`, `Route Command`, `advisor:pending` en Redis (flujo de
+escalación L19-L20), Telegram Escalate, IF Needs Diagnosis, nodos de `/estado` `/evaluar`
+`/proyectos` `/principios` `/memoria`.
+
+### Cierre
+CLAUDE.md maestro actualizado (sección Strategy Advisor, detalle de arquitectura de la memoria
+conversacional). lab_memory: registro operativo del build. Commit + push: pendiente de
+aprobación de Marce (protocolo — el modo de operación de esta sesión exige confirmación para
+commits aunque no para diagnóstico/lectura).
