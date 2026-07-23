@@ -51,6 +51,11 @@ class DiscoveryAgent:
             minute=0,
             id="discovery_daily",
             replace_existing=True,
+            max_instances=1,          # no apilar corridas
+            coalesce=True,            # si se acumularon disparos, correr una sola
+            misfire_grace_time=3600,  # tolerar hasta 1h de retraso; el default de 1s
+                                      # hace que el cron diario se saltee entero si el
+                                      # loop se retrasa >1s (ver Lección 19bis / Bitácora 2026-07-22)
         )
         self._scheduler.start()
         log.info(
