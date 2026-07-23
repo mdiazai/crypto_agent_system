@@ -1,5 +1,5 @@
 # CLAUDE.md — 11mkeys_lab
-## Actualizado: 2026-07-21
+## Actualizado: 2026-07-23
 
 ## Descripción
 Stack de automatización del 11Mkeys AI Lab.
@@ -425,6 +425,12 @@ LIMIT 15;
     manual o startup) lo dejaba en "ok" por horas, ocultando el problema. Detectado
     2026-07-17 por el propio Strategy Advisor leyendo logs reales (no por monitoreo de
     heartbeat). Auditar cualquier otro agente con patrón `_scheduled_run` + wrapper sync.
+    ⚠️ CORRECCIÓN 2026-07-23: el fix de pasar la coroutine directa era NECESARIO pero
+    NO SUFICIENTE — ver Lección 25. La validación de L19 ("el cron corrió solo el
+    2026-07-18 02:10") fue un FALSO POSITIVO: ese fue el run de ARRANQUE (el container
+    se recreó 02:09), no el cron. El cron agendado siguió sin funcionar por otra causa
+    (misfire_grace_time). Regla: para dar por validado un cron NUNCA alcanza ver un run
+    de startup/manual — hay que confirmar un disparo desatendido real a la hora agendada.
 
 20. n8n Code node después de un nodo Telegram: el output de un nodo Telegram REEMPLAZA
     $json con la respuesta cruda de la API de Telegram (`{ok, result: {message_id,
@@ -471,6 +477,19 @@ LIMIT 15;
     import. Aplicar el guard de Lección 10 preventivamente a los 4 agentes nombrados,
     aunque no hayan fallado todavía (ej. `monitor` no falló esta vez, pero tiene el mismo
     import sin protección — solo tuvo suerte con el estado de su imagen).
+25. APScheduler `trigger="cron"` + `misfire_grace_time` por defecto (1 segundo): un job
+    cron que se agenda a una hora exacta (ej. discovery, hour=2 minute=0) se SALTEA
+    ENTERO si el event loop se retrasa aunque sea >1s respecto al segundo exacto —
+    APScheduler loguea `Run time of job "..." was missed by 0:00:0X` y NO lo ejecuta,
+    esperando al próximo disparo (mañana). En un cron diario esto = nunca corre
+    desatendido; solo funcionan los runs de arranque (`await self.run()`) y los manuales.
+    Los agentes con `trigger="interval"` (monitor, research) no sufren esto: un misfire
+    solo saltea un ciclo y el siguiente llega pronto. FIX: en cualquier `add_job` de tipo
+    cron agregar `misfire_grace_time=3600` (tolera hasta 1h de retraso), `coalesce=True`
+    (si se acumularon disparos, correr uno solo) y `max_instances=1`. Detectado 2026-07-23:
+    discovery llevaba ~5 días sin correr su cron pese a tener el fix de L19 aplicado —
+    el heartbeat `discovery:last_run` (TTL 28h) estaba ausente y no había tokens nuevos
+    hace 4 días. Auditar todo `add_job(trigger="cron", ...)` del repo por este parámetro.
 
 ## Estado del sistema (actualizado 2026-07-11)
 - Monitor: 81 tokens activos, ciclo ~5 min

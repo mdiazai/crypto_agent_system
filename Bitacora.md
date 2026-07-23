@@ -7691,3 +7691,97 @@ CLAUDE.md maestro actualizado (sección Strategy Advisor, detalle de arquitectur
 conversacional). lab_memory: registro operativo del build. Commit + push: pendiente de
 aprobación de Marce (protocolo — el modo de operación de esta sesión exige confirmación para
 commits aunque no para diagnóstico/lectura).
+
+
+---
+
+## Sesión 2026-07-21 (continuación) — [lab] Fix: fuga de JSON en respuestas del Advisor
+
+### Contexto
+Al verificar que el webhook del Advisor seguía respondiendo bien tras B9, se detectó un defecto
+real (intermitente, ~1 de cada 2 respuestas): el bloque JSON estructurado interno
+(`{"type":...,"context_update":...}`) se filtraba visible al mensaje de Telegram.
+
+### Causa raíz (preexistente, no introducida por B9)
+El nodo `Parse Advisor Resp` asumía que el JSON venía SIEMPRE al inicio de la respuesta de
+Claude (regex `^\s*\{...\}`). Cuando Claude ponía la explicación primero y el JSON al final,
+el regex no lo detectaba: el JSON no se removía del texto humano y se enviaba a Telegram, con
+los `_` mutados a `-` por el limpiador de Markdown (`problem-identified`, `contextupdate`).
+Además, como el match fallaba, `context_update` y `diagnostic_command` quedaban en null aunque
+Claude sí los hubiera emitido. La fragilidad existía desde antes de B9 — B9 solo la hizo más
+visible al agregar `context_update` al bloque.
+
+### Fix
+`Parse Advisor Resp`: extracción del bloque JSON al INICIO o al FINAL (dos regex, leading y
+trailing), parseado una sola vez, y removido del texto humano en ambos casos. De paso se
+consolidaron los 3 `JSON.parse` separados (uno para los campos, otro para `diagnostic_command`,
+otro para `context_update`) en un único parse. El bloque de limpieza Markdown y el `return` no
+se tocaron. PUT aplicado: workflow sigue en 51 nodos, activo, webhook intacto.
+
+### Verificación
+- Unit test (node) contra el input exacto que se filtró (exec 764, JSON al final): sin fuga,
+  `context_update` leído correctamente. También caso JSON-al-inicio (needs_fix con task_spec) y
+  caso sin-JSON: los tres correctos.
+- 3 ejecuciones en vivo post-fix: sin fuga, respuestas limpias. Los 3 con JSON al inicio (el
+  modelo eligió ese orden las 3 veces), así que el caso trailing en vivo no se llegó a atrapar
+  — cubierto por el unit test con el input real que había fallado. Sin regresión en el caso
+  leading (el común).
+- Contexto conversacional (`advisor_conversation_context`) intacto durante todo el proceso.
+
+### Nota
+Cambio de workflow n8n (vive en n8n, no en git — no hay commit de repo asociado). Registrado
+en Bitácora y lab_memory según protocolo del maestro.
+
+
+---
+
+## Sesión 2026-07-23 — [lab][crypto_agent] Discovery: cron diario nunca corría (misfire_grace_time)
+
+### Contexto
+Al mostrar el estado final del sistema (post B9), se detectó que discovery no corría desde
+hace ~4 días: heartbeat `discovery:last_run` ausente y sin tokens nuevos. Se pidió investigar.
+
+### Diagnóstico (evidencia dura, no asunción)
+- Container up sin reinicios desde 2026-07-18 02:09, `RestartCount: 0`. Última corrida real:
+  el run de ARRANQUE de ese día (02:10). Ningún run desde entonces.
+- El código en disco Y dentro del container son idénticos y tienen el fix de L19 (coroutine
+  directa a `add_job`), así que L19 no era la causa activa.
+- Log rotado (logrotate diario 00:00). El `.1` (día 20→21/07) contenía UNA sola línea:
+  `Run time of job "DiscoveryAgent.run (trigger: cron[hour='2', minute='0'])" was missed by
+  0:00:01.396842`. El `.log` actual (desde 21/07) estaba vacío — 2 días sin loguear nada.
+- Causa raíz: `misfire_grace_time` por defecto de APScheduler = **1 segundo**. El cron a las
+  02:00:00 se retrasó 1.4s → APScheduler lo descartó por misfire → esperó al día siguiente →
+  mismo resultado. Nunca corre desatendido. Monitor y research no sufren esto porque usan
+  `trigger="interval"` (un misfire solo saltea un ciclo, el próximo llega pronto).
+
+### Corrección a la Lección 19
+La validación de L19 ("el cron de discovery corrió solo el 2026-07-18 02:10") fue un FALSO
+POSITIVO: ese fue el run de arranque (el container se recreó 02:09), no el cron agendado. El
+fix de L19 (coroutine directa) era necesario pero NO suficiente. Se anotó la corrección en L19
+y se agregó la Lección 25 (misfire_grace_time). Regla nueva: un cron nunca se da por validado
+viendo un run de startup/manual — hay que confirmar un disparo desatendido real a la hora.
+
+### Fix
+`discovery_agent.py`, `add_job`: agregado `max_instances=1`, `coalesce=True`,
+`misfire_grace_time=3600`. Como el código de discovery está horneado en la imagen (NO
+bind-mounted, a diferencia de orchestrator/smartdevops), se rebuildeó `--no-cache` y se recreó
+el container con `docker run --env-file`.
+
+Nota operativa: durante el trabajo el VPS se reinició solo (uptime volvió a ~2 min, SSH y ping
+caídos ~10 min). Los 16 containers volvieron limpios por `restart: unless-stopped`. El fix se
+aplicó después del reboot; nada quedó a medias.
+
+### Verificación end-to-end
+- Startup run tras recrear: scanned 2767, candidates 33, run_completed OK.
+- Heartbeat `discovery:last_run` ahora existe, TTL ~28h (estaba ausente).
+- Run manual vía canal `channel:control:discovery:run` (PUBLISH → 1 suscriptor): `manual_trigger`
+  de `claude_verificacion` → run_completed (scanned 1427, candidates 19, 14 stale removidos).
+- Universo de tokens refrescado: `last_checked`/`added_at` de hace minutos (estaban 4 días viejos).
+- Config confirmada dentro de la imagen nueva (`grep misfire_grace_time` en el container = 1).
+- PENDIENTE de confirmar mañana: el disparo real del cron a las 02:00 UTC desatendido. La causa
+  raíz era inequívoca y el fix la ataca directo, pero se sigue el principio de la corrección de
+  L19 (no dar por validado sin ver el disparo real).
+
+### Pendiente
+- Commit `discovery_agent.py` en crypto_agent_system (main) — hecho en esta sesión.
+- Verificar el cron desatendido de las 02:00 UTC del 2026-07-24.
